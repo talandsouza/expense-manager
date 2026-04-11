@@ -26,4 +26,5 @@ export interface Transaction {
   numPeople?: number;
   totalAmount?: number;
   debtorNames?: string;
+  originalCategory?: string;
 }

@@ -24,7 +24,11 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
   const [type, setType] = useState<Transaction['type']>(initialData?.type || 'Expense');
   const [amount, setAmount] = useState(initialData?.totalAmount?.toString() || initialData?.amount?.toString() || '');
   const [description, setDescription] = useState(initialData?.description.replace(/ \(My Share\)$| \(Lent\)$| \(Lent to .*\)$/, '') || '');
-  const [category, setCategory] = useState(initialData?.category || 'Miscellaneous');
+  const [category, setCategory] = useState(() => {
+    if (initialData?.originalCategory) return initialData.originalCategory;
+    if (initialData?.category === 'Lent / Owed to Me') return 'Miscellaneous';
+    return initialData?.category || 'Miscellaneous';
+  });
   const [accountId, setAccountId] = useState(initialData?.accountId || accounts[0]?.id || '');
   const [toAccountId, setToAccountId] = useState(initialData?.toAccountId || accounts[1]?.id || '');
   const [date, setDate] = useState(initialData ? dateFns.format(dateFns.parseISO(initialData.date), 'yyyy-MM-dd') : dateFns.format(new Date(), 'yyyy-MM-dd'));
@@ -146,7 +150,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                   onChange={e => setCategory(e.target.value)}
                   className="glass-input w-full text-sm"
                 >
-                  {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                  {categories.filter(cat => cat !== 'Lent / Owed to Me').map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
 
@@ -377,19 +381,18 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                 myShareAmount: parseFloat(myShareAmountInput || '0'),
                 numPeople: parseInt(numPeople),
                 totalAmount,
-                debtorNames
+                debtorNames,
+                originalCategory: category
               };
 
               // Entry A: My Share
-              if (myShareAmount > 0) {
-                results.push({
-                  ...commonData,
-                  amount: myShareAmount,
-                  description: `${description} (My Share)`,
-                  category,
-                  ...splitMetadata
-                });
-              }
+              results.push({
+                ...commonData,
+                amount: myShareAmount,
+                description: `${description} (My Share)`,
+                category,
+                ...splitMetadata
+              });
 
               // Entry B: Lent
               if (lentAmount > 0) {

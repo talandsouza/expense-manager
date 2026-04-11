@@ -46,6 +46,7 @@ export default function App() {
   const [isCopied, setIsCopied] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [filterType, setFilterType] = useState<'All' | 'Income' | 'Expense' | 'Lent'>('All');
 
   // Recurring Logic
   useEffect(() => {
@@ -161,7 +162,7 @@ export default function App() {
     };
   }, [accounts, totalAssets, transactions]);
 
-  const filteredTransactions = useMemo(() => {
+  const baseFilteredTransactions = useMemo(() => {
     const filtered = transactions.filter(t => {
       const queryWords = searchQuery.toLowerCase().split(' ').filter(word => word.length > 0);
       const searchableText = `${t.description} ${t.amount} ${t.debtorNames || ''}`.toLowerCase();
@@ -187,12 +188,30 @@ export default function App() {
   }, [transactions, searchQuery, filterMonth, filterYear, filterCategory, filterAccount, sortBy, sortOrder]);
 
   const cashFlow = useMemo(() => {
-    return filteredTransactions.reduce((acc, t) => {
-      if (t.type === 'Income') acc.income += t.amount;
-      else if (t.type === 'Expense') acc.expense += t.amount;
+    return baseFilteredTransactions.reduce((acc, t) => {
+      if (t.type === 'Income') {
+        acc.income += t.amount;
+      } else if (t.type === 'Expense') {
+        // A transaction is "Lent" if it's in the Lent category AND it's not the user's own share of a split
+        if (t.category === 'Lent / Owed to Me' && !t.description.includes('(My Share)')) {
+          acc.lent += t.amount;
+        } else {
+          acc.expense += t.amount;
+        }
+      }
       return acc;
-    }, { income: 0, expense: 0 });
-  }, [filteredTransactions]);
+    }, { income: 0, expense: 0, lent: 0 });
+  }, [baseFilteredTransactions]);
+
+  const filteredTransactions = useMemo(() => {
+    if (filterType === 'All') return baseFilteredTransactions;
+    return baseFilteredTransactions.filter(t => {
+      if (filterType === 'Income') return t.type === 'Income';
+      if (filterType === 'Lent') return t.category === 'Lent / Owed to Me';
+      if (filterType === 'Expense') return t.type === 'Expense' && t.category !== 'Lent / Owed to Me';
+      return true;
+    });
+  }, [baseFilteredTransactions, filterType]);
 
   const filterDescription = useMemo(() => {
     const parts = [];
@@ -224,8 +243,13 @@ export default function App() {
       parts.push(`matching "${searchQuery}"`);
     }
 
+    // Type filter
+    if (filterType !== 'All') {
+      parts.push(`(${filterType} only)`);
+    }
+
     return parts.join(' ');
-  }, [filterMonth, filterYear, filterCategory, filterAccount, searchQuery, accounts]);
+  }, [filterMonth, filterYear, filterCategory, filterAccount, searchQuery, accounts, filterType]);
 
   const copyResults = () => {
     if (filteredTransactions.length === 0) return;
@@ -488,15 +512,39 @@ export default function App() {
                 <p className="text-[10px] font-bold uppercase text-neutral-400 tracking-widest px-1">
                   Showing {filterDescription}
                 </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="glass-card p-4 border-l-4 border-l-emerald-500">
+                <div className="flex flex-wrap gap-3">
+                  <button 
+                    onClick={() => setFilterType(filterType === 'Income' ? 'All' : 'Income')}
+                    className={cn(
+                      "glass-card p-4 border-l-4 border-l-emerald-500 flex-1 min-w-[120px] text-left transition-all active:scale-95",
+                      filterType === 'Income' ? "ring-2 ring-emerald-500 ring-offset-2" : "opacity-70 grayscale-[0.3]"
+                    )}
+                  >
                     <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Income</p>
                     <p className="text-xl font-bold text-emerald-600">{formatCurrency(cashFlow.income)}</p>
-                  </div>
-                  <div className="glass-card p-4 border-l-4 border-l-red-500">
+                  </button>
+                  <button 
+                    onClick={() => setFilterType(filterType === 'Expense' ? 'All' : 'Expense')}
+                    className={cn(
+                      "glass-card p-4 border-l-4 border-l-red-500 flex-1 min-w-[120px] text-left transition-all active:scale-95",
+                      filterType === 'Expense' ? "ring-2 ring-red-500 ring-offset-2" : "opacity-70 grayscale-[0.3]"
+                    )}
+                  >
                     <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Expenses</p>
                     <p className="text-xl font-bold text-red-500">{formatCurrency(cashFlow.expense)}</p>
-                  </div>
+                  </button>
+                  {cashFlow.lent > 0 && (
+                    <button 
+                      onClick={() => setFilterType(filterType === 'Lent' ? 'All' : 'Lent')}
+                      className={cn(
+                        "glass-card p-4 border-l-4 border-l-blue-500 flex-1 min-w-[120px] text-left transition-all active:scale-95",
+                        filterType === 'Lent' ? "ring-2 ring-blue-500 ring-offset-2" : "opacity-70 grayscale-[0.3]"
+                      )}
+                    >
+                      <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Lent</p>
+                      <p className="text-xl font-bold text-blue-500">{formatCurrency(cashFlow.lent)}</p>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -528,7 +576,7 @@ export default function App() {
                       {isCopied ? 'Copied!' : 'Copy'}
                     </button>
                   </div>
-                  {(filterMonth !== dateFns.format(new Date(), 'MMMM') || filterYear !== dateFns.format(new Date(), 'yyyy') || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '' || sortBy !== 'date' || sortOrder !== 'desc') && (
+                  {(filterMonth !== dateFns.format(new Date(), 'MMMM') || filterYear !== dateFns.format(new Date(), 'yyyy') || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '' || sortBy !== 'date' || sortOrder !== 'desc' || filterType !== 'All') && (
                     <button 
                       onClick={() => {
                         setSearchQuery('');
@@ -538,6 +586,7 @@ export default function App() {
                         setFilterAccount('All');
                         setSortBy('date');
                         setSortOrder('desc');
+                        setFilterType('All');
                       }}
                       className="text-[10px] font-bold uppercase text-blue-600 hover:text-blue-700 transition-colors"
                     >
@@ -702,13 +751,23 @@ export default function App() {
                         <div className="flex flex-col items-end flex-shrink-0">
                           <p className={cn(
                             "font-bold text-sm whitespace-nowrap leading-tight",
-                            t.type === 'Income' ? "text-emerald-600" : "text-neutral-900"
+                            t.type === 'Income' ? "text-emerald-600" : 
+                            t.type === 'Transfer' ? "text-neutral-900" :
+                            (t.category === 'Lent / Owed to Me' && !t.description.includes('(My Share)')) ? "text-blue-500" : 
+                            "text-red-500"
                           )}>
                             {t.type === 'Income' ? '+' : '-'}{formatCurrency(t.amount)}
                           </p>
                           <div className="flex items-center gap-1 mt-1">
                             <button 
-                              onClick={() => setEditingTransaction(t)} 
+                              onClick={() => {
+                                if (t.groupId) {
+                                  const master = transactions.find(tx => tx.groupId === t.groupId && tx.description.includes('(My Share)'));
+                                  setEditingTransaction(master || t);
+                                } else {
+                                  setEditingTransaction(t);
+                                }
+                              }} 
                               className="text-neutral-400 hover:text-blue-500 p-1 transition-colors active:scale-90"
                             >
                               <Pencil size={12} />
