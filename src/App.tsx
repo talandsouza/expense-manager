@@ -1,56 +1,30 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import React, { useState, useMemo } from 'react';
-import { 
-  Plus, 
-  Wallet, 
-  CreditCard, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  Settings as SettingsIcon, 
-  LayoutDashboard,
-  ChevronRight,
-  ArrowRightLeft,
-  Download,
-  Upload,
-  Trash2,
-  X,
-  Check,
-  Pencil
-} from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  format, 
-  isAfter, 
-  startOfMonth, 
-  endOfMonth, 
-  addMonths, 
-  subMonths, 
-  addDays,
-  addWeeks,
-  addYears,
-  getDate, 
-  setDay, 
-  setMonth, 
-  setYear,
-  parseISO,
-  differenceInDays
-} from 'date-fns';
-import Papa from 'papaparse';
+  Plus, Wallet, ArrowUpRight, ArrowDownLeft, 
+  Settings as SettingsIcon, LayoutDashboard, ChevronRight, 
+  ArrowRightLeft, Download, Upload, Trash2, Pencil, Check, X, Search, Filter 
+} from 'lucide-react';
+import * as dateFns from 'date-fns';
 import { useLocalStorage } from './hooks/useLocalStorage';
-import { cn, formatCurrency } from './lib/utils';
-import { Account, Transaction, AccountType, StatementGroup } from './types';
+import { cn, formatCurrency, calculatePendingDues } from './lib/utils';
+import { Account, Transaction } from './types';
+
+// Components
+import TransactionModal from './components/TransactionModal';
+import AccountModal from './components/AccountModal';
+import PayBillModal from './components/PayBillModal';
+import ConfirmationModal from './components/ConfirmationModal';
+import ResetModal from './components/ResetModal';
+
+const CATEGORIES = [
+  "Housing & Utilities", "Groceries", "Transportation", "Medical", 
+  "Insurance", "Gifts & Donations", "Investments", "Dining", 
+  "Tickets & Subscriptions", "Shopping", "Education", "Miscellaneous"
+];
 
 export default function App() {
-  // --- State ---
-  const [accounts, setAccounts] = useLocalStorage<Account[]>('pennywise_accounts', [
-    { id: '1', name: 'Main Bank', type: 'Bank', balance: 150000, color: 'bg-blue-500' },
-    { id: '2', name: 'Pocket Cash', type: 'Cash', balance: 5000, color: 'bg-emerald-500' },
-    { id: '3', name: 'Credit Card', type: 'Credit Card', balance: -45000, billingDate: 15, dueDate: 5, color: 'bg-indigo-600' },
-  ]);
+  const [accounts, setAccounts] = useLocalStorage<Account[]>('pennywise_accounts', []);
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>('pennywise_transactions', []);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'accounts' | 'settings'>('dashboard');
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -60,28 +34,15 @@ export default function App() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [selectedCreditCard, setSelectedCreditCard] = useState<Account | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterMonth, setFilterMonth] = useState<string>(format(new Date(), 'MMMM'));
-  const [filterYear, setFilterYear] = useState<string>(format(new Date(), 'yyyy'));
-  const [filterCategory, setFilterCategory] = useState<string>('All');
-  const [filterAccount, setFilterAccount] = useState<string>('All');
+  const [filterMonth, setFilterMonth] = useState(dateFns.format(new Date(), 'MMMM'));
+  const [filterYear, setFilterYear] = useState(dateFns.format(new Date(), 'yyyy'));
+  const [filterCategory, setFilterCategory] = useState('All');
+  const [filterAccount, setFilterAccount] = useState('All');
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
-  const categories = [
-    "Housing & Utilities",
-    "Groceries",
-    "Transportation",
-    "Medical",
-    "Insurance",
-    "Gifts & Donations",
-    "Investments",
-    "Dining",
-    "Tickets & Subscriptions",
-    "Shopping",
-    "Education",
-    "Miscellaneous"
-  ];
-
-  // --- Recurring Logic ---
-  React.useEffect(() => {
+  // Recurring Logic
+  useEffect(() => {
     const today = new Date();
     let accountsUpdated = false;
     let tempAccounts = [...accounts];
@@ -90,31 +51,29 @@ export default function App() {
 
     const processedTransactions = tempTransactions.map(t => {
       if (t.isRecurring && t.recurringFrequency) {
-        let nextDate = parseISO(t.date);
+        let nextDate = dateFns.parseISO(t.date);
         let hasGenerated = false;
 
         while (true) {
           let potentialNextDate: Date;
-          if (t.recurringFrequency === 'Daily') potentialNextDate = addDays(nextDate, 1);
-          else if (t.recurringFrequency === 'Weekly') potentialNextDate = addWeeks(nextDate, 1);
-          else if (t.recurringFrequency === 'Monthly') potentialNextDate = addMonths(nextDate, 1);
-          else potentialNextDate = addYears(nextDate, 1);
+          if (t.recurringFrequency === 'Daily') potentialNextDate = dateFns.addDays(nextDate, 1);
+          else if (t.recurringFrequency === 'Weekly') potentialNextDate = dateFns.addWeeks(nextDate, 1);
+          else if (t.recurringFrequency === 'Monthly') potentialNextDate = dateFns.addMonths(nextDate, 1);
+          else potentialNextDate = dateFns.addYears(nextDate, 1);
 
-          if (isAfter(potentialNextDate, today)) break;
+          if (dateFns.isAfter(potentialNextDate, today)) break;
 
-          // Create new transaction instance
           const id = Math.random().toString(36).substr(2, 9);
           const newInstance: Transaction = {
             ...t,
             id,
             date: potentialNextDate.toISOString(),
-            isRecurring: false, // The generated one isn't the master recurring template
+            isRecurring: false,
           };
           newTransactionsAdded.push(newInstance);
           nextDate = potentialNextDate;
           hasGenerated = true;
           
-          // Update temp balances
           tempAccounts = tempAccounts.map(acc => {
             if (acc.id === t.accountId) {
               return { ...acc, balance: acc.balance + (t.type === 'Income' ? t.amount : -t.amount) };
@@ -142,19 +101,10 @@ export default function App() {
     }
   }, []);
 
-  // --- Derived Data ---
-  const netWorth = useMemo(() => {
-    return accounts.reduce((acc, curr) => acc + curr.balance, 0);
-  }, [accounts]);
-
-  const totalAssets = useMemo(() => {
-    return accounts.filter(a => a.type !== 'Credit Card').reduce((acc, curr) => acc + curr.balance, 0);
-  }, [accounts]);
-
-  const totalDebt = useMemo(() => {
-    return Math.abs(accounts.filter(a => a.type === 'Credit Card').reduce((acc, curr) => acc + curr.balance, 0));
-  }, [accounts]);
-
+  // Derived Data
+  const netWorth = useMemo(() => accounts.reduce((acc, curr) => acc + curr.balance, 0), [accounts]);
+  const totalAssets = useMemo(() => accounts.filter(a => a.type !== 'Credit Card').reduce((acc, curr) => acc + curr.balance, 0), [accounts]);
+  
   const peaceOfMind = useMemo(() => {
     const cc = accounts.find(a => a.type === 'Credit Card' && a.balance < 0);
     if (!cc) return null;
@@ -162,28 +112,54 @@ export default function App() {
     const amount = Math.abs(cc.balance);
     const coverage = totalAssets / amount;
     
-    // Calculate days until due
     const today = new Date();
     let dueDate = new Date(today.getFullYear(), today.getMonth(), cc.dueDate || 1);
-    if (isAfter(today, dueDate)) {
-      dueDate = addMonths(dueDate, 1);
+    if (dateFns.isAfter(today, dueDate)) {
+      dueDate = dateFns.addMonths(dueDate, 1);
     }
-    const daysLeft = differenceInDays(dueDate, today);
+    const daysLeft = dateFns.differenceInDays(dueDate, today);
+
+    // Pending Dues Logic
+    const overdueCards: string[] = [];
+    const ccAccounts = accounts.filter(a => a.type === 'Credit Card' && a.billingDate && a.dueDate);
+    
+    ccAccounts.forEach(acc => {
+      const pending = calculatePendingDues(acc, transactions);
+      if (pending > 0) {
+        let lastBillingDate = new Date(today.getFullYear(), today.getMonth(), acc.billingDate!);
+        if (dateFns.isAfter(lastBillingDate, today)) {
+          lastBillingDate = dateFns.subMonths(lastBillingDate, 1);
+        }
+        
+        let lastDueDate = new Date(lastBillingDate.getFullYear(), lastBillingDate.getMonth(), acc.dueDate!);
+        if (dateFns.isBefore(lastDueDate, lastBillingDate)) {
+          lastDueDate = dateFns.addMonths(lastDueDate, 1);
+        }
+
+        if (dateFns.isAfter(today, lastDueDate)) {
+          overdueCards.push(acc.name);
+        }
+      }
+    });
+
+    const hasPendingDues = overdueCards.length > 0;
 
     return {
       amount,
       daysLeft,
       coverage: coverage.toFixed(1),
-      isSafe: coverage > 1.5
+      isSafe: coverage > 1.5 && !hasPendingDues,
+      hasPendingDues,
+      overdueCards
     };
-  }, [accounts, totalAssets]);
+  }, [accounts, totalAssets, transactions]);
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
       const matchesSearch = t.description.toLowerCase().includes(searchQuery.toLowerCase());
-      const tDate = parseISO(t.date);
-      const matchesMonth = filterMonth === 'All' || format(tDate, 'MMMM') === filterMonth;
-      const matchesYear = filterYear === 'All' || format(tDate, 'yyyy') === filterYear;
+      const tDate = dateFns.parseISO(t.date);
+      const matchesMonth = filterMonth === 'All' || dateFns.format(tDate, 'MMMM') === filterMonth;
+      const matchesYear = filterYear === 'All' || dateFns.format(tDate, 'yyyy') === filterYear;
       const matchesCategory = filterCategory === 'All' || t.category === filterCategory;
       const matchesAccount = filterAccount === 'All' || t.accountId === filterAccount || t.toAccountId === filterAccount;
       return matchesSearch && matchesMonth && matchesYear && matchesCategory && matchesAccount;
@@ -198,13 +174,12 @@ export default function App() {
     }, { income: 0, expense: 0 });
   }, [filteredTransactions]);
 
-  // --- Logic ---
+  // Handlers
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
     const id = Math.random().toString(36).substr(2, 9);
-    const newTransaction = { ...t, id };
+    const newTransaction: Transaction = { ...t, id };
     setTransactions([newTransaction, ...transactions]);
 
-    // Update account balance
     setAccounts(accounts.map(acc => {
       if (acc.id === t.accountId) {
         return { ...acc, balance: acc.balance + (t.type === 'Income' ? t.amount : -t.amount) };
@@ -220,7 +195,6 @@ export default function App() {
     const old = transactions.find(tx => tx.id === id);
     if (!old) return;
 
-    // 1. Revert old transaction impact
     let tempAccounts = accounts.map(acc => {
       if (acc.id === old.accountId) {
         return { ...acc, balance: acc.balance - (old.type === 'Income' ? old.amount : -old.amount) };
@@ -231,7 +205,6 @@ export default function App() {
       return acc;
     });
 
-    // 2. Apply new transaction impact
     tempAccounts = tempAccounts.map(acc => {
       if (acc.id === updated.accountId) {
         return { ...acc, balance: acc.balance + (updated.type === 'Income' ? updated.amount : -updated.amount) };
@@ -252,7 +225,6 @@ export default function App() {
 
     setTransactions(transactions.filter(tx => tx.id !== id));
 
-    // Revert account balance
     setAccounts(accounts.map(acc => {
       if (acc.id === t.accountId) {
         return { ...acc, balance: acc.balance - (t.type === 'Income' ? t.amount : -t.amount) };
@@ -290,12 +262,19 @@ export default function App() {
     });
   };
 
-  // --- Export/Import ---
-  const exportToCSV = () => {
-    // We'll export two separate sections in one file or use a JSON-like structure.
-    // To keep it CSV but include both, we can prefix rows or use a combined object.
-    // Better approach: Export a JSON file for "Full Backup" or a multi-part CSV.
-    // Let's stick to a clean JSON export for "Full Backup" to ensure all types are preserved.
+  const handleReset = (type: 'transactions' | 'balances' | 'nuclear') => {
+    if (type === 'transactions') {
+      setTransactions([]);
+    } else if (type === 'balances') {
+      setAccounts(accounts.map(acc => ({ ...acc, balance: 0 })));
+    } else if (type === 'nuclear') {
+      setTransactions([]);
+      setAccounts([]);
+    }
+    setIsResetModalOpen(false);
+  };
+
+  const exportBackup = () => {
     const data = {
       accounts,
       transactions,
@@ -305,11 +284,11 @@ export default function App() {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `pennywise_backup_${format(new Date(), 'yyyy-MM-dd')}.json`;
+    link.download = `pennywise_backup_${dateFns.format(new Date(), 'yyyy-MM-dd')}.json`;
     link.click();
   };
 
-  const importFromBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const importBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -331,13 +310,12 @@ export default function App() {
     }
   };
 
-  // --- Views ---
   return (
     <div className="max-w-md mx-auto min-h-screen pb-24 px-4 pt-8 relative overflow-x-hidden">
       {/* Header */}
       <header className="mb-8 flex justify-between items-end">
         <div>
-          <p className="text-neutral-500 text-sm font-medium uppercase tracking-wider">Net Worth</p>
+          <p className="text-neutral-500 text-sm font-medium uppercase tracking-wider">Available Funds</p>
           <h1 className="text-4xl font-bold tracking-tight">{formatCurrency(netWorth)}</h1>
         </div>
         <div className="flex gap-2">
@@ -368,19 +346,29 @@ export default function App() {
               {peaceOfMind && (
                 <div className={cn(
                   "glass-card p-6 border-l-4",
+                  peaceOfMind.hasPendingDues ? "border-l-red-500 bg-red-50/30" : 
                   peaceOfMind.isSafe ? "border-l-emerald-500" : "border-l-amber-500"
                 )}>
                   <div className="flex justify-between items-start mb-2">
                     <span className="text-xs font-bold uppercase text-neutral-400">Peace of Mind</span>
-                    {peaceOfMind.isSafe ? <Check size={16} className="text-emerald-500" /> : <X size={16} className="text-amber-500" />}
+                    {peaceOfMind.hasPendingDues ? <X size={16} className="text-red-500" /> :
+                     peaceOfMind.isSafe ? <Check size={16} className="text-emerald-500" /> : <X size={16} className="text-amber-500" />}
                   </div>
                   <p className="text-neutral-700 leading-relaxed">
-                    You owe <span className="font-bold text-neutral-900">{formatCurrency(peaceOfMind.amount)}</span> in <span className="font-bold text-neutral-900">{peaceOfMind.daysLeft} days</span>. 
-                    <br />
-                    {parseFloat(peaceOfMind.coverage) >= 1 ? (
-                      <>Your cash covers this <span className="font-bold text-neutral-900">{peaceOfMind.coverage}x</span> over.</>
+                    {peaceOfMind.hasPendingDues ? (
+                      <span className="text-red-600 font-medium">
+                        Please pay your overdue {peaceOfMind.overdueCards.join(', ')} balance to maintain your account status.
+                      </span>
                     ) : (
-                      <>You need <span className="font-bold text-red-500">{Math.abs(1 / parseFloat(peaceOfMind.coverage)).toFixed(1)}x</span> more than what you have.</>
+                      <>
+                        You owe <span className="font-bold text-neutral-900">{formatCurrency(peaceOfMind.amount)}</span> in <span className="font-bold text-neutral-900">{peaceOfMind.daysLeft} days</span>. 
+                        <br />
+                        {parseFloat(peaceOfMind.coverage) >= 1 ? (
+                          <>Your cash covers this <span className="font-bold text-neutral-900">{peaceOfMind.coverage}x</span> over.</>
+                        ) : (
+                          <>You need <span className="font-bold text-red-500">{Math.abs(1 / parseFloat(peaceOfMind.coverage)).toFixed(1)}x</span> more than what you have.</>
+                        )}
+                      </>
                     )}
                   </p>
                 </div>
@@ -398,16 +386,27 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Grouped Transactions */}
+              {/* Activity Section */}
               <section className="space-y-6">
                 <div className="flex justify-between items-center">
-                  <h2 className="text-lg font-semibold">Activity</h2>
-                  {(filterMonth !== format(new Date(), 'MMMM') || filterYear !== format(new Date(), 'yyyy') || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '') && (
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold">Activity</h2>
+                    <button 
+                      onClick={() => setShowFilters(!showFilters)}
+                      className={cn(
+                        "p-1.5 rounded-lg transition-colors",
+                        showFilters ? "bg-blue-50 text-blue-600" : "text-neutral-400 hover:bg-neutral-50"
+                      )}
+                    >
+                      <Filter size={16} />
+                    </button>
+                  </div>
+                  {(filterMonth !== dateFns.format(new Date(), 'MMMM') || filterYear !== dateFns.format(new Date(), 'yyyy') || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '') && (
                     <button 
                       onClick={() => {
                         setSearchQuery('');
-                        setFilterMonth(format(new Date(), 'MMMM'));
-                        setFilterYear(format(new Date(), 'yyyy'));
+                        setFilterMonth(dateFns.format(new Date(), 'MMMM'));
+                        setFilterYear(dateFns.format(new Date(), 'yyyy'));
                         setFilterCategory('All');
                         setFilterAccount('All');
                       }}
@@ -419,167 +418,123 @@ export default function App() {
                 </div>
 
                 {/* Filters */}
-                <div className="space-y-3">
-                  {/* Search Bar */}
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Search transactions..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="glass-input w-full pl-10"
-                    />
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                    </div>
-                    {searchQuery && (
-                      <button 
-                        onClick={() => {
-                          setSearchQuery('');
-                          setFilterMonth(format(new Date(), 'MMMM'));
-                          setFilterYear(format(new Date(), 'yyyy'));
-                          setFilterCategory('All');
-                          setFilterAccount('All');
-                        }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
-                      >
-                        <X size={16} />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <select 
-                      value={filterMonth} 
-                      onChange={(e) => setFilterMonth(e.target.value)}
-                      className="glass-input text-[10px] font-bold uppercase py-2 px-2"
+                <AnimatePresence>
+                  {showFilters && (
+                    <motion.div 
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden space-y-3"
                     >
-                      <option value="All">Month</option>
-                      {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-neutral-400">
+                          <Search size={18} />
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Search transactions..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="glass-input w-full pl-12 py-3.5 text-sm"
+                        />
+                      </div>
 
-                    <select 
-                      value={filterYear} 
-                      onChange={(e) => setFilterYear(e.target.value)}
-                      className="glass-input text-[10px] font-bold uppercase py-2 px-2"
-                    >
-                      <option value="All">Year</option>
-                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
-                        <option key={y} value={y.toString()}>{y}</option>
-                      ))}
-                    </select>
-
-                    <select 
-                      value={filterCategory} 
-                      onChange={(e) => setFilterCategory(e.target.value)}
-                      className="glass-input text-[10px] font-bold uppercase py-2 px-2"
-                    >
-                      <option value="All">Category</option>
-                      {categories.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-
-                    <select 
-                      value={filterAccount} 
-                      onChange={(e) => setFilterAccount(e.target.value)}
-                      className="glass-input text-[10px] font-bold uppercase py-2 px-2"
-                    >
-                      <option value="All">Account</option>
-                      {accounts.map(a => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                
-                {Object.entries(
-                  filteredTransactions
-                    .reduce((groups: any, t) => {
-                    const account = accounts.find(a => a.id === t.accountId);
-                    let period = format(parseISO(t.date), 'MMMM yyyy');
-                    let isFuture = false;
-
-                    if (account?.type === 'Credit Card' && account.billingDate) {
-                      const tDate = parseISO(t.date);
-                      const billingDay = account.billingDate;
-                      const tDay = getDate(tDate);
-                      
-                      if (tDay > billingDay) {
-                        period = `Next Statement (${format(addMonths(tDate, 1), 'MMM')})`;
-                        isFuture = true;
-                      } else {
-                        period = `Current Statement (${format(tDate, 'MMM')})`;
-                      }
-                    }
-
-                    if (!groups[period]) groups[period] = { transactions: [], isFuture };
-                    groups[period].transactions.push(t);
-                    return groups;
-                  }, {})
-                ).map(([period, group]: [string, any]) => (
-                  <div key={period} className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-[10px] font-bold uppercase text-neutral-400 tracking-widest">{period}</h3>
-                      <div className="flex-1 h-[1px] bg-neutral-100" />
-                    </div>
-                    {group.transactions.map((t: Transaction) => {
-                      const account = accounts.find(a => a.id === t.accountId);
-                      return (
-                        <div 
-                          key={t.id} 
-                          className={cn(
-                            "glass-card p-4 flex items-center justify-between group border-l-4 transition-all",
-                            group.isFuture ? "border-l-purple-400" : "border-l-blue-400"
-                          )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <select 
+                          value={filterMonth} 
+                          onChange={(e) => setFilterMonth(e.target.value)}
+                          className="glass-input text-[10px] font-bold uppercase py-2 px-2"
                         >
-                          <div className="flex items-center gap-4">
-                            <div className={cn(
-                              "w-10 h-10 rounded-xl flex items-center justify-center",
-                              t.type === 'Income' ? "bg-emerald-100 text-emerald-600" : 
-                              t.type === 'Transfer' ? "bg-blue-100 text-blue-600" : "bg-neutral-100 text-neutral-600"
-                            )}>
-                              {t.type === 'Income' ? <ArrowDownLeft size={20} /> : 
-                               t.type === 'Transfer' ? <ArrowRightLeft size={20} /> : <ArrowUpRight size={20} />}
-                            </div>
-                            <div>
-                              <p className="font-semibold text-sm">{t.description}</p>
-                              <p className="text-xs text-neutral-400">{account?.name} • {format(parseISO(t.date), 'MMM d')}</p>
-                            </div>
+                          <option value="All">Month</option>
+                          {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+
+                        <select 
+                          value={filterYear} 
+                          onChange={(e) => setFilterYear(e.target.value)}
+                          className="glass-input text-[10px] font-bold uppercase py-2 px-2"
+                        >
+                          <option value="All">Year</option>
+                          {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                            <option key={y} value={y.toString()}>{y}</option>
+                          ))}
+                        </select>
+
+                        <select 
+                          value={filterCategory} 
+                          onChange={(e) => setFilterCategory(e.target.value)}
+                          className="glass-input text-[10px] font-bold uppercase py-2 px-2"
+                        >
+                          <option value="All">Category</option>
+                          {CATEGORIES.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
+
+                        <select 
+                          value={filterAccount} 
+                          onChange={(e) => setFilterAccount(e.target.value)}
+                          className="glass-input text-[10px] font-bold uppercase py-2 px-2"
+                        >
+                          <option value="All">Account</option>
+                          {accounts.map(acc => (
+                            <option key={acc.id} value={acc.id}>{acc.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                
+                {/* Transaction List */}
+                <div className="space-y-4">
+                  {filteredTransactions.map(t => {
+                    const account = accounts.find(a => a.id === t.accountId);
+                    return (
+                      <div 
+                        key={t.id} 
+                        className="glass-card p-4 flex items-center justify-between group border-l-4 border-l-blue-400 transition-all"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={cn(
+                            "w-10 h-10 rounded-xl flex items-center justify-center",
+                            t.type === 'Income' ? "bg-emerald-100 text-emerald-600" : 
+                            t.type === 'Transfer' ? "bg-blue-100 text-blue-600" : "bg-neutral-100 text-neutral-600"
+                          )}>
+                            {t.type === 'Income' ? <ArrowDownLeft size={20} /> : 
+                             t.type === 'Transfer' ? <ArrowRightLeft size={20} /> : <ArrowUpRight size={20} />}
                           </div>
-                          <div className="flex flex-col items-end">
-                            <p className={cn(
-                              "font-bold text-sm",
-                              t.type === 'Income' ? "text-emerald-600" : "text-neutral-900"
-                            )}>
-                              {t.type === 'Income' ? '+' : '-'}{formatCurrency(t.amount)}
-                            </p>
-                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button 
-                                onClick={() => setEditingTransaction(t)} 
-                                className="text-neutral-400 hover:text-blue-500 transition-colors p-1"
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              <button 
-                                onClick={() => deleteTransaction(t.id)} 
-                                className="text-neutral-400 hover:text-red-500 transition-colors p-1"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
+                          <div>
+                            <p className="font-semibold text-sm">{t.description}</p>
+                            <p className="text-xs text-neutral-400">{account?.name} • {dateFns.format(dateFns.parseISO(t.date), 'MMM d')}</p>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                ))}
+                        <div className="flex flex-col items-end">
+                          <p className={cn(
+                            "font-bold text-sm",
+                            t.type === 'Income' ? "text-emerald-600" : "text-neutral-900"
+                          )}>
+                            {t.type === 'Income' ? '+' : '-'}{formatCurrency(t.amount)}
+                          </p>
+                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => setEditingTransaction(t)} className="text-neutral-400 hover:text-blue-500 p-1">
+                              <Pencil size={14} />
+                            </button>
+                            <button onClick={() => deleteTransaction(t.id)} className="text-neutral-400 hover:text-red-500 p-1">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
-                {transactions.length === 0 && (
+                {filteredTransactions.length === 0 && (
                   <div className="text-center py-12 text-neutral-400">
-                    <p>No transactions yet.</p>
+                    <p>No transactions found.</p>
                   </div>
                 )}
               </section>
@@ -596,9 +551,11 @@ export default function App() {
             >
               <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold">Your Accounts</h2>
-                <button onClick={() => setIsAccountModalOpen(true)} className="glass-button flex items-center gap-2 text-sm">
-                  <Plus size={16} /> Add
-                </button>
+                <div className="flex gap-2">
+                  <button onClick={() => setIsAccountModalOpen(true)} className="glass-button flex items-center gap-2 text-sm">
+                    <Plus size={16} /> Add
+                  </button>
+                </div>
               </div>
               
               <div className="grid gap-4">
@@ -638,16 +595,10 @@ export default function App() {
                     )}
 
                     <div className="flex justify-end items-center gap-3">
-                      <button 
-                        onClick={() => setEditingAccount(acc)} 
-                        className="text-neutral-300 hover:text-blue-500 transition-colors"
-                      >
+                      <button onClick={() => setEditingAccount(acc)} className="text-neutral-300 hover:text-blue-500">
                         <Pencil size={16} />
                       </button>
-                      <button 
-                        onClick={() => deleteAccount(acc.id)} 
-                        className="text-neutral-300 hover:text-red-400 transition-colors"
-                      >
+                      <button onClick={() => deleteAccount(acc.id)} className="text-neutral-300 hover:text-red-400">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -671,7 +622,7 @@ export default function App() {
                 <h3 className="text-sm font-bold uppercase text-neutral-400 tracking-widest">Data Management</h3>
                 <div className="glass-card p-4 space-y-4">
                   <button 
-                    onClick={exportToCSV}
+                    onClick={exportBackup}
                     className="w-full flex items-center justify-between p-2 hover:bg-neutral-50 rounded-xl transition-colors"
                   >
                     <div className="flex items-center gap-3">
@@ -686,20 +637,20 @@ export default function App() {
                       <Upload size={20} className="text-neutral-400" />
                       <span className="font-medium">Import Backup (JSON)</span>
                     </div>
-                    <input type="file" accept=".json" onChange={importFromBackup} className="hidden" />
+                    <input type="file" accept=".json" onChange={importBackup} className="hidden" />
                     <ChevronRight size={16} className="text-neutral-300" />
                   </label>
-                </div>
-              </section>
 
-              <section className="space-y-4">
-                <h3 className="text-sm font-bold uppercase text-neutral-400 tracking-widest">About</h3>
-                <div className="glass-card p-6 text-center space-y-2">
-                  <p className="font-bold text-lg">PennyWise</p>
-                  <p className="text-sm text-neutral-500">Version 1.0.0</p>
-                  <p className="text-xs text-neutral-400 leading-relaxed">
-                    Designed for clarity. Built for peace of mind.
-                  </p>
+                  <button 
+                    onClick={() => setIsResetModalOpen(true)}
+                    className="w-full flex items-center justify-between p-2 hover:bg-red-50 rounded-xl transition-colors text-red-600"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Trash2 size={20} className="text-red-400" />
+                      <span className="font-medium">Reset All Data</span>
+                    </div>
+                    <ChevronRight size={16} className="text-red-200" />
+                  </button>
                 </div>
               </section>
             </motion.div>
@@ -707,33 +658,45 @@ export default function App() {
         </AnimatePresence>
       </main>
 
+      {/* Floating Add Button - Home Screen Only */}
+      <AnimatePresence>
+        {activeTab === 'dashboard' && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-md pointer-events-none px-6 z-[60]"
+          >
+            <div className="flex justify-end">
+              <button 
+                onClick={() => setIsExpenseModalOpen(true)}
+                className="w-14 h-14 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-200 flex items-center justify-center active:scale-95 transition-transform pointer-events-auto"
+              >
+                <Plus size={28} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Navigation Bar */}
       <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md glass-card p-2 flex items-center justify-between z-50">
         <button 
           onClick={() => setActiveTab('dashboard')}
           className={cn(
             "flex-1 flex flex-col items-center gap-1 py-2 rounded-xl transition-all",
-            activeTab === 'dashboard' ? "bg-neutral-900 text-white" : "text-neutral-400 hover:text-neutral-600"
+            activeTab === 'dashboard' ? "bg-neutral-900 text-white" : "text-neutral-400"
           )}
         >
           <LayoutDashboard size={20} />
           <span className="text-[10px] font-bold uppercase">Home</span>
         </button>
         
-        <div className="relative -top-8 px-2">
-          <button 
-            onClick={() => setIsExpenseModalOpen(true)}
-            className="w-14 h-14 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-200 flex items-center justify-center active:scale-95 transition-transform"
-          >
-            <Plus size={28} />
-          </button>
-        </div>
-
         <button 
           onClick={() => setActiveTab('accounts')}
           className={cn(
             "flex-1 flex flex-col items-center gap-1 py-2 rounded-xl transition-all",
-            activeTab === 'accounts' ? "bg-neutral-900 text-white" : "text-neutral-400 hover:text-neutral-600"
+            activeTab === 'accounts' ? "bg-neutral-900 text-white" : "text-neutral-400"
           )}
         >
           <Wallet size={20} />
@@ -746,415 +709,47 @@ export default function App() {
         {(isExpenseModalOpen || editingTransaction) && (
           <TransactionModal 
             accounts={accounts} 
-            initialData={editingTransaction || undefined}
+            initialData={editingTransaction}
             onClose={() => {
               setIsExpenseModalOpen(false);
               setEditingTransaction(null);
             }} 
             onSave={(t) => {
-              if (editingTransaction) {
-                updateTransaction(editingTransaction.id, t);
-              } else {
-                addTransaction(t);
-              }
+              if (editingTransaction) updateTransaction(editingTransaction.id, t);
+              else addTransaction(t);
             }} 
-            categories={categories}
+            categories={CATEGORIES}
           />
         )}
-        {isAccountModalOpen || editingAccount ? (
+        {(isAccountModalOpen || editingAccount) && (
           <AccountModal 
-            initialData={editingAccount || undefined}
+            initialData={editingAccount}
             onClose={() => {
               setIsAccountModalOpen(false);
               setEditingAccount(null);
             }} 
             onSave={(a) => {
-              if (editingAccount) {
-                updateAccount(editingAccount.id, a);
-              } else {
-                addAccount(a);
-              }
+              if (editingAccount) updateAccount(editingAccount.id, a);
+              else addAccount(a);
             }} 
           />
-        ) : null}
+        )}
         {isPayBillModalOpen && selectedCreditCard && (
           <PayBillModal 
             cc={selectedCreditCard}
             accounts={accounts.filter(a => a.type !== 'Credit Card')}
             onClose={() => setIsPayBillModalOpen(false)}
             onSave={payBill}
+            defaultAmount={calculatePendingDues(selectedCreditCard, transactions)}
+          />
+        )}
+        {isResetModalOpen && (
+          <ResetModal
+            onClose={() => setIsResetModalOpen(false)}
+            onReset={handleReset}
           />
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-// --- Sub-components ---
-
-function TransactionModal({ accounts, onClose, onSave, categories, initialData }: { 
-  accounts: Account[], 
-  onClose: () => void, 
-  onSave: (t: any) => void, 
-  categories: string[],
-  initialData?: Transaction
-}) {
-  const [type, setType] = useState<'Expense' | 'Income' | 'Transfer'>(initialData?.type || 'Expense');
-  const [amount, setAmount] = useState(initialData?.amount.toString() || '');
-  const [description, setDescription] = useState(initialData?.description || '');
-  const [category, setCategory] = useState(initialData?.category || 'Miscellaneous');
-  const [accountId, setAccountId] = useState(initialData?.accountId || accounts[0]?.id || '');
-  const [toAccountId, setToAccountId] = useState(initialData?.toAccountId || accounts[1]?.id || '');
-  const [date, setDate] = useState(initialData ? format(parseISO(initialData.date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'));
-  const [isRecurring, setIsRecurring] = useState(initialData?.isRecurring || false);
-  const [recurringFrequency, setRecurringFrequency] = useState<'Daily' | 'Weekly' | 'Monthly' | 'Yearly'>(initialData?.recurringFrequency || 'Monthly');
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0 }} 
-      animate={{ opacity: 1 }} 
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-neutral-900/40 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-4"
-    >
-      <motion.div 
-        initial={{ y: 100 }} 
-        animate={{ y: 0 }} 
-        exit={{ y: 100 }}
-        className="glass-card w-full max-w-md p-6 space-y-6"
-      >
-        <div className="flex justify-between items-center">
-          <h3 className="text-xl font-bold">{initialData ? 'Edit Transaction' : 'New Transaction'}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-neutral-100 rounded-full transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="flex p-1 bg-neutral-100 rounded-xl">
-          {(['Expense', 'Income', 'Transfer'] as const).map(t => (
-            <button
-              key={t}
-              onClick={() => setType(t)}
-              className={cn(
-                "flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all",
-                type === t ? "bg-white shadow-sm text-neutral-900" : "text-neutral-400"
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Amount</label>
-            <input 
-              type="number" 
-              value={amount} 
-              onChange={e => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="glass-input w-full text-2xl font-bold"
-              autoFocus
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Description</label>
-            <input 
-              type="text" 
-              value={description} 
-              onChange={e => setDescription(e.target.value)}
-              placeholder="What was it for?"
-              className="glass-input w-full"
-            />
-          </div>
-
-          {type === 'Expense' && (
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Category</label>
-              <select 
-                value={category} 
-                onChange={e => setCategory(e.target.value)}
-                className="glass-input w-full text-sm"
-              >
-                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-              </select>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Account</label>
-              <select 
-                value={accountId} 
-                onChange={e => setAccountId(e.target.value)}
-                className="glass-input w-full text-sm"
-              >
-                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
-            {type === 'Transfer' ? (
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">To Account</label>
-                <select 
-                  value={toAccountId} 
-                  onChange={e => setToAccountId(e.target.value)}
-                  className="glass-input w-full text-sm"
-                >
-                  {accounts.filter(a => a.id !== accountId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Date</label>
-                <input 
-                  type="date" 
-                  value={date} 
-                  onChange={e => setDate(e.target.value)}
-                  className="glass-input w-full text-sm"
-                />
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-4 pt-2">
-            <label className="flex items-center gap-3 cursor-pointer group">
-              <div className={cn(
-                "w-10 h-6 rounded-full transition-all relative",
-                isRecurring ? "bg-blue-600" : "bg-neutral-200"
-              )}>
-                <div className={cn(
-                  "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                  isRecurring ? "left-5" : "left-1"
-                )} />
-              </div>
-              <input 
-                type="checkbox" 
-                checked={isRecurring} 
-                onChange={e => setIsRecurring(e.target.checked)}
-                className="hidden"
-              />
-              <span className="text-sm font-medium text-neutral-700">Recurring Transaction</span>
-            </label>
-
-            {isRecurring && (
-              <motion.div 
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="space-y-1"
-              >
-                <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Frequency</label>
-                <select 
-                  value={recurringFrequency} 
-                  onChange={e => setRecurringFrequency(e.target.value as any)}
-                  className="glass-input w-full text-sm"
-                >
-                  <option value="Daily">Daily</option>
-                  <option value="Weekly">Weekly</option>
-                  <option value="Monthly">Monthly</option>
-                  <option value="Yearly">Yearly</option>
-                </select>
-              </motion.div>
-            )}
-          </div>
-        </div>
-
-        <button 
-          onClick={() => {
-            onSave({
-              accountId,
-              toAccountId: type === 'Transfer' ? toAccountId : undefined,
-              amount: parseFloat(amount),
-              description,
-              date: new Date(date).toISOString(),
-              category: type === 'Expense' ? category : 'General',
-              type,
-              isRecurring,
-              recurringFrequency: isRecurring ? recurringFrequency : undefined
-            });
-            onClose();
-          }}
-          disabled={!amount || !description}
-          className="w-full bg-neutral-900 text-white py-4 rounded-2xl font-bold hover:bg-neutral-800 transition-colors disabled:opacity-50"
-        >
-          {initialData ? 'Update Transaction' : 'Save Transaction'}
-        </button>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-function AccountModal({ onClose, onSave, initialData }: { 
-  onClose: () => void, 
-  onSave: (a: any) => void,
-  initialData?: Account
-}) {
-  const [name, setName] = useState(initialData?.name || '');
-  const [type, setType] = useState<AccountType>(initialData?.type || 'Bank');
-  const [balance, setBalance] = useState(initialData?.balance.toString() || '');
-  const [billingDate, setBillingDate] = useState(initialData?.billingDate?.toString() || '15');
-  const [dueDate, setDueDate] = useState(initialData?.dueDate?.toString() || '5');
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0 }} 
-      animate={{ opacity: 1 }} 
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-neutral-900/40 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-4"
-    >
-      <motion.div 
-        initial={{ y: 100 }} 
-        animate={{ y: 0 }} 
-        exit={{ y: 100 }}
-        className="glass-card w-full max-w-md p-6 space-y-6"
-      >
-        <div className="flex justify-between items-center">
-          <h3 className="text-xl font-bold">{initialData ? 'Edit Account' : 'Add Account'}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-neutral-100 rounded-full transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Account Name</label>
-            <input 
-              type="text" 
-              value={name} 
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. Chase Freedom"
-              className="glass-input w-full"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Type</label>
-            <select 
-              value={type} 
-              onChange={e => setType(e.target.value as AccountType)}
-              className="glass-input w-full"
-            >
-              <option value="Bank">Bank</option>
-              <option value="Cash">Cash</option>
-              <option value="Credit Card">Credit Card</option>
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Initial Balance</label>
-            <input 
-              type="number" 
-              value={balance} 
-              onChange={e => setBalance(e.target.value)}
-              placeholder="0.00"
-              className="glass-input w-full"
-            />
-          </div>
-
-          {type === 'Credit Card' && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Billing Day</label>
-                <input 
-                  type="number" 
-                  min="1" max="31"
-                  value={billingDate} 
-                  onChange={e => setBillingDate(e.target.value)}
-                  className="glass-input w-full"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Due Day</label>
-                <input 
-                  type="number" 
-                  min="1" max="31"
-                  value={dueDate} 
-                  onChange={e => setDueDate(e.target.value)}
-                  className="glass-input w-full"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <button 
-          onClick={() => {
-            onSave({
-              name,
-              type,
-              balance: parseFloat(balance) || 0,
-              billingDate: type === 'Credit Card' ? parseInt(billingDate) : undefined,
-              dueDate: type === 'Credit Card' ? parseInt(dueDate) : undefined,
-              color: initialData?.color || 'bg-blue-500'
-            });
-            onClose();
-          }}
-          disabled={!name}
-          className="w-full bg-neutral-900 text-white py-4 rounded-2xl font-bold hover:bg-neutral-800 transition-colors disabled:opacity-50"
-        >
-          {initialData ? 'Update Account' : 'Create Account'}
-        </button>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-function PayBillModal({ cc, accounts, onClose, onSave }: { cc: Account, accounts: Account[], onClose: () => void, onSave: (ccId: string, fromId: string, amount: number) => void }) {
-  const [fromId, setFromId] = useState(accounts[0]?.id || '');
-  const [amount, setAmount] = useState(Math.abs(cc.balance).toString());
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0 }} 
-      animate={{ opacity: 1 }} 
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-neutral-900/40 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-4"
-    >
-      <motion.div 
-        initial={{ y: 100 }} 
-        animate={{ y: 0 }} 
-        exit={{ y: 100 }}
-        className="glass-card w-full max-w-md p-6 space-y-6"
-      >
-        <div className="flex justify-between items-center">
-          <h3 className="text-xl font-bold">Pay Bill: {cc.name}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-neutral-100 rounded-full transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">From Account</label>
-            <select 
-              value={fromId} 
-              onChange={e => setFromId(e.target.value)}
-              className="glass-input w-full"
-            >
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({formatCurrency(a.balance)})</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Payment Amount</label>
-            <input 
-              type="number" 
-              value={amount} 
-              onChange={e => setAmount(e.target.value)}
-              className="glass-input w-full text-2xl font-bold"
-            />
-          </div>
-        </div>
-
-        <button 
-          onClick={() => {
-            onSave(cc.id, fromId, parseFloat(amount));
-            onClose();
-          }}
-          className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 transition-colors"
-        >
-          Confirm Payment
-        </button>
-      </motion.div>
-    </motion.div>
   );
 }

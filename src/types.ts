@@ -1,33 +1,22 @@
-export type AccountType = 'Cash' | 'Bank' | 'Credit Card';
-
 export interface Account {
   id: string;
   name: string;
-  type: AccountType;
+  type: 'Bank' | 'Cash' | 'Credit Card' | 'Investment';
   balance: number;
-  billingDate?: number; // Day of month (1-31)
-  dueDate?: number;     // Day of month (1-31)
-  color?: string;
+  billingDate?: number;
+  dueDate?: number;
+  color: string;
 }
-
-export type RecurringFrequency = 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
 
 export interface Transaction {
   id: string;
   accountId: string;
+  toAccountId?: string;
   amount: number;
   description: string;
-  date: string; // ISO string
+  date: string;
   category: string;
-  type: 'Income' | 'Expense' | 'Transfer';
-  toAccountId?: string; // For transfers
+  type: 'Expense' | 'Income' | 'Transfer';
   isRecurring?: boolean;
-  recurringFrequency?: RecurringFrequency;
-}
-
-export interface StatementGroup {
-  period: string;
-  transactions: Transaction[];
-  total: number;
-  isFuture: boolean;
+  recurringFrequency?: 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
 }
