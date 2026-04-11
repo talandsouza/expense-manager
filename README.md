@@ -1,20 +1,17 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+Expense Manager
+A straightforward, mobile-friendly tool to track where money goes and who owes what. It’s designed to run in a browser (like Chrome on Android) and save everything locally.
 
-# Run and deploy your AI Studio app
+What it does
+Total Balance: Shows "Available Funds" across Cash, Bank, Investments, and Credit Cards.
 
-This contains everything you need to run your app locally.
+Splitting Bills: When you pay for others, you can split the bill by percentage or by number of people. It automatically puts your share in the right category (like Food) and the rest into a "Lent" bucket.
 
-View your app in AI Studio: https://ai.studio/apps/95260218-33fd-4ba1-8555-3e64c371e428
+Lent Tracking: A "Lent" tile only shows up when someone owes you money. When they pay you back, you can mark an income entry as a "Payback" to clear the debt and hide the tile.
 
-## Run Locally
+Searching & Naming: You can add names to splits. Even if the list gets long and shows "...", you can search for a name to see everything related to them.
 
-**Prerequisites:**  Node.js
+Quick Copy: Filter your transactions (like searching for "Lent") and hit the Copy button to get a text list with a total sum ready to paste into a message.
 
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+How it's built
+React + Vite: It's fast and light.
+Local Storage: Your data stays on your device's browser.
