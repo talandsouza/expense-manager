@@ -64,12 +64,15 @@ body {
   width: 100%;
   line-height: normal;
   display: block;
+  box-sizing: border-box;
 }
 
 input[type="date"].glass-input {
   display: flex;
   align-items: center;
   text-align: left;
+  min-width: 0;
+  overflow: hidden;
 }
 
 select.glass-input {

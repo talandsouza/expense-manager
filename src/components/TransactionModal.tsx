@@ -115,25 +115,19 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
               </div>
 
               {/* Split Toggle */}
-              <div className="space-y-3 p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
-                <label className="flex items-center justify-between cursor-pointer">
+              <div className="space-y-3 p-4 bg-blue-50/50 rounded-2xl border border-blue-100 relative">
+                <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold text-blue-900">Split with others?</span>
-                  <div className={cn(
-                    "w-10 h-6 rounded-full transition-all relative",
-                    isSplit ? "bg-blue-600" : "bg-neutral-200"
-                  )}>
-                    <div className={cn(
-                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                      isSplit ? "left-5" : "left-1"
-                    )} />
-                  </div>
-                  <input 
-                    type="checkbox" 
-                    checked={isSplit} 
-                    onChange={e => setIsSplit(e.target.checked)}
-                    className="hidden"
-                  />
-                </label>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={isSplit} 
+                      onChange={e => setIsSplit(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-6 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
 
                 {isSplit && (
                   <motion.div 
@@ -211,8 +205,8 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
+          <div className="grid grid-cols-2 gap-4 w-full">
+            <div className="space-y-1 min-w-0">
               <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Account</label>
               <select 
                 value={accountId} 
@@ -223,7 +217,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
               </select>
             </div>
             {type === 'Transfer' ? (
-              <div className="space-y-1">
+              <div className="space-y-1 min-w-0">
                 <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">To Account</label>
                 <select 
                   value={toAccountId} 
@@ -234,13 +228,13 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                 </select>
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1 min-w-0">
                 <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Date</label>
                 <input 
                   type="date" 
                   value={date} 
                   onChange={e => setDate(e.target.value)}
-                  className="glass-input w-full text-sm"
+                  className="glass-input w-full text-sm appearance-none"
                 />
               </div>
             )}
