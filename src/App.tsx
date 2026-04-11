@@ -15,6 +15,7 @@ import { Account, Transaction } from './types';
 import TransactionModal from './components/TransactionModal';
 import AccountModal from './components/AccountModal';
 import PayBillModal from './components/PayBillModal';
+import CreditCardStatementModal from './components/CreditCardStatementModal';
 import ConfirmationModal from './components/ConfirmationModal';
 import ResetModal from './components/ResetModal';
 
@@ -34,6 +35,7 @@ export default function App() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [selectedCreditCard, setSelectedCreditCard] = useState<Account | null>(null);
+  const [selectedStatementCard, setSelectedStatementCard] = useState<Account | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMonth, setFilterMonth] = useState(dateFns.format(new Date(), 'MMMM'));
   const [filterYear, setFilterYear] = useState(dateFns.format(new Date(), 'yyyy'));
@@ -129,10 +131,11 @@ export default function App() {
     
     ccAccounts.forEach(acc => {
       const pending = calculatePendingDues(acc, transactions);
-      if (pending > 0) {
+      if (pending >= 0.01) {
         let lastBillingDate = new Date(today.getFullYear(), today.getMonth(), acc.billingDate!);
-        if (dateFns.isAfter(lastBillingDate, today)) {
-          lastBillingDate = dateFns.subMonths(lastBillingDate, 1);
+        // If today is the billing day or before it, the "last" bill was from the previous month
+        if (!dateFns.isAfter(today, dateFns.endOfDay(lastBillingDate))) {
+          lastBillingDate = dateFns.addMonths(lastBillingDate, -1);
         }
         
         let lastDueDate = new Date(lastBillingDate.getFullYear(), lastBillingDate.getMonth(), acc.dueDate!);
@@ -140,7 +143,7 @@ export default function App() {
           lastDueDate = dateFns.addMonths(lastDueDate, 1);
         }
 
-        if (dateFns.isAfter(today, lastDueDate)) {
+        if (dateFns.isAfter(today, dateFns.endOfDay(lastDueDate))) {
           overdueCards.push(acc.name);
         }
       }
@@ -190,6 +193,39 @@ export default function App() {
       return acc;
     }, { income: 0, expense: 0 });
   }, [filteredTransactions]);
+
+  const filterDescription = useMemo(() => {
+    const parts = [];
+    
+    // Time period
+    if (filterMonth === 'All' && filterYear === 'All') {
+      parts.push('all time');
+    } else if (filterMonth === 'All') {
+      parts.push(`Year ${filterYear}`);
+    } else if (filterYear === 'All') {
+      parts.push(`every ${filterMonth}`);
+    } else {
+      parts.push(`${filterMonth} ${filterYear}`);
+    }
+
+    // Category
+    if (filterCategory !== 'All') {
+      parts.push(`in ${filterCategory}`);
+    }
+
+    // Account
+    if (filterAccount !== 'All') {
+      const acc = accounts.find(a => a.id === filterAccount);
+      if (acc) parts.push(`for ${acc.name}`);
+    }
+
+    // Search
+    if (searchQuery) {
+      parts.push(`matching "${searchQuery}"`);
+    }
+
+    return parts.join(' ');
+  }, [filterMonth, filterYear, filterCategory, filterAccount, searchQuery, accounts]);
 
   const copyResults = () => {
     if (filteredTransactions.length === 0) return;
@@ -448,14 +484,19 @@ export default function App() {
               )}
 
               {/* Cash Flow Summary */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="glass-card p-4 border-l-4 border-l-emerald-500">
-                  <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Income</p>
-                  <p className="text-xl font-bold text-emerald-600">{formatCurrency(cashFlow.income)}</p>
-                </div>
-                <div className="glass-card p-4 border-l-4 border-l-red-500">
-                  <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Expenses</p>
-                  <p className="text-xl font-bold text-red-500">{formatCurrency(cashFlow.expense)}</p>
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase text-neutral-400 tracking-widest px-1">
+                  Showing {filterDescription}
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="glass-card p-4 border-l-4 border-l-emerald-500">
+                    <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Income</p>
+                    <p className="text-xl font-bold text-emerald-600">{formatCurrency(cashFlow.income)}</p>
+                  </div>
+                  <div className="glass-card p-4 border-l-4 border-l-red-500">
+                    <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Expenses</p>
+                    <p className="text-xl font-bold text-red-500">{formatCurrency(cashFlow.expense)}</p>
+                  </div>
                 </div>
               </div>
 
@@ -642,25 +683,25 @@ export default function App() {
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.95 }}
                           transition={{ duration: 0.2 }}
-                          className="glass-card p-4 flex items-center justify-between group border-l-4 border-l-blue-400"
+                          className="glass-card p-4 flex items-center justify-between group border-l-4 border-l-blue-400 gap-3"
                         >
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-4 min-w-0">
                           <div className={cn(
-                            "w-10 h-10 rounded-xl flex items-center justify-center",
+                            "w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center",
                             t.type === 'Income' ? "bg-emerald-100 text-emerald-600" : 
                             t.type === 'Transfer' ? "bg-blue-100 text-blue-600" : "bg-neutral-100 text-neutral-600"
                           )}>
                             {t.type === 'Income' ? <ArrowDownLeft size={20} /> : 
                              t.type === 'Transfer' ? <ArrowRightLeft size={20} /> : <ArrowUpRight size={20} />}
                           </div>
-                          <div>
-                            <p className="font-semibold text-sm truncate max-w-[180px] sm:max-w-xs">{t.description}</p>
-                            <p className="text-xs text-neutral-400">{account?.name} • {dateFns.format(dateFns.parseISO(t.date), 'MMM d')}</p>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm truncate">{t.description}</p>
+                            <p className="text-xs text-neutral-400 truncate">{account?.name} • {dateFns.format(dateFns.parseISO(t.date), 'MMM d')}</p>
                           </div>
                         </div>
-                        <div className="flex flex-col items-end">
+                        <div className="flex flex-col items-end flex-shrink-0">
                           <p className={cn(
-                            "font-bold text-sm",
+                            "font-bold text-sm whitespace-nowrap",
                             t.type === 'Income' ? "text-emerald-600" : "text-neutral-900"
                           )}>
                             {t.type === 'Income' ? '+' : '-'}{formatCurrency(t.amount)}
@@ -708,7 +749,18 @@ export default function App() {
               
               <div className="grid gap-3">
                 {accounts.map(acc => (
-                  <div key={acc.id} className="glass-card p-4 space-y-3">
+                  <div 
+                    key={acc.id} 
+                    className={cn(
+                      "glass-card p-4 space-y-3 transition-all",
+                      acc.type === 'Credit Card' ? "cursor-pointer hover:border-blue-200 active:scale-[0.99]" : ""
+                    )}
+                    onClick={() => {
+                      if (acc.type === 'Credit Card') {
+                        setSelectedStatementCard(acc);
+                      }
+                    }}
+                  >
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-3">
                         <div className={cn("w-2.5 h-2.5 rounded-full", acc.color)} />
@@ -724,10 +776,22 @@ export default function App() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <button onClick={() => setEditingAccount(acc)} className="text-neutral-300 hover:text-blue-500 p-1">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingAccount(acc);
+                            }} 
+                            className="text-neutral-300 hover:text-blue-500 p-1"
+                          >
                             <Pencil size={14} />
                           </button>
-                          <button onClick={() => deleteAccount(acc.id)} className="text-neutral-300 hover:text-red-400 p-1">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteAccount(acc.id);
+                            }} 
+                            className="text-neutral-300 hover:text-red-400 p-1"
+                          >
                             <Trash2 size={14} />
                           </button>
                         </div>
@@ -741,7 +805,8 @@ export default function App() {
                           <p><span className="font-bold uppercase">Due:</span> Day {acc.dueDate}</p>
                         </div>
                         <button 
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setSelectedCreditCard(acc);
                             setIsPayBillModalOpen(true);
                           }}
@@ -890,6 +955,13 @@ export default function App() {
             onClose={() => setIsPayBillModalOpen(false)}
             onSave={payBill}
             defaultAmount={calculatePendingDues(selectedCreditCard, transactions)}
+          />
+        )}
+        {selectedStatementCard && (
+          <CreditCardStatementModal 
+            cc={selectedStatementCard}
+            transactions={transactions}
+            onClose={() => setSelectedStatementCard(null)}
           />
         )}
         {isResetModalOpen && (

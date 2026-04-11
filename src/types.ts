@@ -20,8 +20,9 @@ export interface Transaction {
   isRecurring?: boolean;
   recurringFrequency?: 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
   groupId?: string;
-  splitType?: 'Percentage' | 'Equal';
+  splitType?: 'Percentage' | 'Equal' | 'Amount';
   mySharePercent?: number;
+  myShareAmount?: number;
   numPeople?: number;
   totalAmount?: number;
   debtorNames?: string;

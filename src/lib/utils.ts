@@ -19,13 +19,18 @@ export function calculatePendingDues(acc: Account, transactions: Transaction[]) 
 
   const today = new Date();
   let lastBillingDate = new Date(today.getFullYear(), today.getMonth(), acc.billingDate);
-  if (dateFns.isAfter(lastBillingDate, today)) {
-    lastBillingDate = dateFns.subMonths(lastBillingDate, 1);
+  
+  // If today is on or before the billing day, the "last" bill was generated in the previous month
+  if (!dateFns.isAfter(today, dateFns.endOfDay(lastBillingDate))) {
+    lastBillingDate = dateFns.addMonths(lastBillingDate, -1);
   }
+
+  // A bill includes all transactions UP TO the end of the billing day
+  const billingCycleEnd = dateFns.endOfDay(lastBillingDate);
 
   const txAfterBilling = transactions.filter(t => 
     (t.accountId === acc.id || t.toAccountId === acc.id) && 
-    dateFns.isAfter(dateFns.parseISO(t.date), lastBillingDate)
+    dateFns.isAfter(dateFns.parseISO(t.date), billingCycleEnd)
   );
   
   let balanceAtBilling = acc.balance;
@@ -45,5 +50,5 @@ export function calculatePendingDues(acc: Account, transactions: Transaction[]) 
     .reduce((sum, t) => sum + t.amount, 0);
   
   const pending = Math.abs(balanceAtBilling) - paymentsSinceBilling;
-  return Math.max(0, pending);
+  return Math.max(0, Math.round(pending * 100) / 100);
 }

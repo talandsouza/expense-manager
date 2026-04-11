@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { X } from 'lucide-react';
 import * as dateFns from 'date-fns';
-import { cn } from '@/src/lib/utils';
+import { cn, formatCurrency } from '@/src/lib/utils';
 import { Account, Transaction } from '@/src/types';
 
 interface TransactionModalProps {
@@ -33,8 +33,9 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
 
   // Split Logic State
   const [isSplit, setIsSplit] = useState(!!initialData?.groupId);
-  const [splitType, setSplitType] = useState<'Percentage' | 'Equal'>(initialData?.splitType || 'Percentage');
+  const [splitType, setSplitType] = useState<'Percentage' | 'Equal' | 'Amount'>(initialData?.splitType || 'Percentage');
   const [mySharePercent, setMySharePercent] = useState(initialData?.mySharePercent?.toString() || '50');
+  const [myShareAmountInput, setMyShareAmountInput] = useState(initialData?.myShareAmount?.toString() || '');
   const [numPeople, setNumPeople] = useState(initialData?.numPeople?.toString() || '2');
   const [debtorNames, setDebtorNames] = useState(initialData?.debtorNames || '');
 
@@ -135,8 +136,8 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                     animate={{ opacity: 1, height: 'auto' }}
                     className="space-y-3 pt-2 border-t border-blue-100"
                   >
-                    <div className="flex p-1 bg-blue-100/50 rounded-lg">
-                      {(['Percentage', 'Equal'] as const).map(s => (
+                    <div className="flex p-1 bg-blue-100/50 rounded-lg gap-1">
+                      {(['Percentage', 'Equal', 'Amount'] as const).map(s => (
                         <button
                           key={s}
                           onClick={() => setSplitType(s)}
@@ -145,7 +146,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                             splitType === s ? "bg-white shadow-sm text-blue-600" : "text-blue-400"
                           )}
                         >
-                          {s === 'Percentage' ? 'By %' : 'Equal Parts'}
+                          {s === 'Percentage' ? 'By %' : s === 'Equal' ? 'Equal' : 'Amount'}
                         </button>
                       ))}
                     </div>
@@ -177,7 +178,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-blue-400">%</span>
                         </div>
                       </div>
-                    ) : (
+                    ) : splitType === 'Equal' ? (
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold uppercase text-blue-400 ml-1">Number of People</label>
                         <input 
@@ -188,15 +189,41 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                           min="2"
                         />
                       </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-blue-400 ml-1">My Share Amount</label>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          value={myShareAmountInput} 
+                          onChange={e => setMyShareAmountInput(e.target.value)}
+                          placeholder="0.00"
+                          className="glass-input w-full text-sm"
+                        />
+                      </div>
                     )}
                     
                     <div className="bg-blue-600/10 p-2 rounded-lg">
                       <p className="text-[10px] text-blue-600 font-medium">
-                        {splitType === 'Percentage' ? (
-                          `You'll pay ${mySharePercent}% and lent the remaining ${100 - parseFloat(mySharePercent || '0')}%`
-                        ) : (
-                          `You'll pay 1/${numPeople} share and lent the rest to ${parseInt(numPeople || '2') - 1} people`
-                        )}
+                        {(() => {
+                          const total = parseFloat(amount || '0');
+                          if (splitType === 'Percentage') {
+                            const myShare = parseFloat(((total * parseFloat(mySharePercent || '0')) / 100).toFixed(2));
+                            const lent = parseFloat((total - myShare).toFixed(2));
+                            const baseMsg = `You'll pay ${mySharePercent}% and lent the remaining ${100 - parseFloat(mySharePercent || '0')}%`;
+                            return total > 0 ? `${baseMsg} (${formatCurrency(myShare)} / ${formatCurrency(lent)})` : baseMsg;
+                          } else if (splitType === 'Equal') {
+                            const myShare = parseFloat((total / parseInt(numPeople || '1')).toFixed(2));
+                            const lent = parseFloat((total - myShare).toFixed(2));
+                            const baseMsg = `You'll pay 1/${numPeople} share and lent the rest to ${parseInt(numPeople || '2') - 1} people`;
+                            return total > 0 ? `${baseMsg} (${formatCurrency(myShare)} / ${formatCurrency(lent)})` : baseMsg;
+                          } else {
+                            const myShare = parseFloat(myShareAmountInput || '0');
+                            const lent = parseFloat((total - myShare).toFixed(2));
+                            const baseMsg = `You'll pay ${formatCurrency(myShare)} and lent the remaining ${formatCurrency(lent)}`;
+                            return total > 0 ? baseMsg : `Enter total amount to see split`;
+                          }
+                        })()}
                       </p>
                     </div>
                   </motion.div>
@@ -301,8 +328,10 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
               let myShareAmount: number;
               if (splitType === 'Percentage') {
                 myShareAmount = parseFloat(((totalAmount * parseFloat(mySharePercent || '0')) / 100).toFixed(2));
-              } else {
+              } else if (splitType === 'Equal') {
                 myShareAmount = parseFloat((totalAmount / parseInt(numPeople || '1')).toFixed(2));
+              } else {
+                myShareAmount = parseFloat(myShareAmountInput || '0');
               }
               const lentAmount = parseFloat((totalAmount - myShareAmount).toFixed(2));
 
@@ -310,40 +339,45 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                 groupId,
                 splitType,
                 mySharePercent: parseFloat(mySharePercent),
+                myShareAmount: parseFloat(myShareAmountInput || '0'),
                 numPeople: parseInt(numPeople),
                 totalAmount,
                 debtorNames
               };
 
               // Entry A: My Share
-              results.push({
-                ...commonData,
-                amount: myShareAmount,
-                description: `${description} (My Share)`,
-                category,
-                ...splitMetadata
-              });
-
-              // Entry B: Lent
-              const names = debtorNames.split(',').map(n => n.trim()).filter(Boolean);
-              let lentDescription = description;
-              if (names.length === 1) {
-                lentDescription += ` (Lent to ${names[0]})`;
-              } else if (names.length === 2) {
-                lentDescription += ` (Lent to ${names[0]} and ${names[1]})`;
-              } else if (names.length >= 3) {
-                lentDescription += ` (Lent to ${names[0]}, ${names[1]} ... )`;
-              } else {
-                lentDescription += ` (Lent)`;
+              if (myShareAmount > 0) {
+                results.push({
+                  ...commonData,
+                  amount: myShareAmount,
+                  description: `${description} (My Share)`,
+                  category,
+                  ...splitMetadata
+                });
               }
 
-              results.push({
-                ...commonData,
-                amount: lentAmount,
-                description: lentDescription,
-                category: 'Lent / Owed to Me',
-                ...splitMetadata
-              });
+              // Entry B: Lent
+              if (lentAmount > 0) {
+                const names = debtorNames.split(',').map(n => n.trim()).filter(Boolean);
+                let lentDescription = description;
+                if (names.length === 1) {
+                  lentDescription += ` (Lent to ${names[0]})`;
+                } else if (names.length === 2) {
+                  lentDescription += ` (Lent to ${names[0]} and ${names[1]})`;
+                } else if (names.length >= 3) {
+                  lentDescription += ` (Lent to ${names[0]}, ${names[1]} ... )`;
+                } else {
+                  lentDescription += ` (Lent)`;
+                }
+
+                results.push({
+                  ...commonData,
+                  amount: lentAmount,
+                  description: lentDescription,
+                  category: 'Lent / Owed to Me',
+                  ...splitMetadata
+                });
+              }
             } else {
               results.push({
                 ...commonData,
