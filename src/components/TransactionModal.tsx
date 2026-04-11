@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { X } from 'lucide-react';
 import * as dateFns from 'date-fns';
@@ -14,6 +14,13 @@ interface TransactionModalProps {
 }
 
 export default function TransactionModal({ accounts, onClose, onSave, categories, initialData }: TransactionModalProps) {
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, []);
+
   const [type, setType] = useState<Transaction['type']>(initialData?.type || 'Expense');
   const [amount, setAmount] = useState(initialData?.totalAmount?.toString() || initialData?.amount?.toString() || '');
   const [description, setDescription] = useState(initialData?.description.replace(/ \(My Share\)$| \(Lent\)$| \(Lent to .*\)$/, '') || '');
@@ -42,7 +49,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
         initial={{ y: 100 }} 
         animate={{ y: 0 }} 
         exit={{ y: 100 }}
-        className="glass-card w-full max-w-md p-6 space-y-6 max-h-[90vh] overflow-y-auto no-scrollbar"
+        className="glass-card w-full max-w-md p-6 space-y-6 max-h-[90vh] overflow-y-auto no-scrollbar overscroll-contain"
       >
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-bold">{initialData ? 'Edit Transaction' : 'New Transaction'}</h3>
@@ -78,7 +85,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
               value={amount} 
               onChange={e => setAmount(e.target.value)}
               placeholder="0.00"
-              className="glass-input w-full text-2xl font-bold"
+              className="glass-input w-full text-2xl font-bold h-auto py-2"
               autoFocus
             />
           </div>
