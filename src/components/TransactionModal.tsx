@@ -8,21 +8,28 @@ import { Account, Transaction } from '@/src/types';
 interface TransactionModalProps {
   accounts: Account[];
   onClose: () => void;
-  onSave: (transaction: Omit<Transaction, 'id'>) => void;
+  onSave: (transactions: Omit<Transaction, 'id'>[]) => void;
   categories: string[];
   initialData?: Transaction | null;
 }
 
 export default function TransactionModal({ accounts, onClose, onSave, categories, initialData }: TransactionModalProps) {
   const [type, setType] = useState<Transaction['type']>(initialData?.type || 'Expense');
-  const [amount, setAmount] = useState(initialData?.amount?.toString() || '');
-  const [description, setDescription] = useState(initialData?.description || '');
+  const [amount, setAmount] = useState(initialData?.totalAmount?.toString() || initialData?.amount?.toString() || '');
+  const [description, setDescription] = useState(initialData?.description.replace(/ \(My Share\)$| \(Lent\)$| \(Lent to .*\)$/, '') || '');
   const [category, setCategory] = useState(initialData?.category || 'Miscellaneous');
   const [accountId, setAccountId] = useState(initialData?.accountId || accounts[0]?.id || '');
   const [toAccountId, setToAccountId] = useState(initialData?.toAccountId || accounts[1]?.id || '');
   const [date, setDate] = useState(initialData ? dateFns.format(dateFns.parseISO(initialData.date), 'yyyy-MM-dd') : dateFns.format(new Date(), 'yyyy-MM-dd'));
   const [isRecurring, setIsRecurring] = useState(initialData?.isRecurring || false);
   const [recurringFrequency, setRecurringFrequency] = useState<Transaction['recurringFrequency']>(initialData?.recurringFrequency || 'Monthly');
+
+  // Split Logic State
+  const [isSplit, setIsSplit] = useState(!!initialData?.groupId);
+  const [splitType, setSplitType] = useState<'Percentage' | 'Equal'>(initialData?.splitType || 'Percentage');
+  const [mySharePercent, setMySharePercent] = useState(initialData?.mySharePercent?.toString() || '50');
+  const [numPeople, setNumPeople] = useState(initialData?.numPeople?.toString() || '2');
+  const [debtorNames, setDebtorNames] = useState(initialData?.debtorNames || '');
 
   return (
     <motion.div 
@@ -35,7 +42,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
         initial={{ y: 100 }} 
         animate={{ y: 0 }} 
         exit={{ y: 100 }}
-        className="glass-card w-full max-w-md p-6 space-y-6"
+        className="glass-card w-full max-w-md p-6 space-y-6 max-h-[90vh] overflow-y-auto no-scrollbar"
       >
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-bold">{initialData ? 'Edit Transaction' : 'New Transaction'}</h3>
@@ -48,7 +55,10 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
           {(['Expense', 'Income', 'Transfer'] as const).map(t => (
             <button
               key={t}
-              onClick={() => setType(t)}
+              onClick={() => {
+                setType(t);
+                if (t !== 'Expense') setIsSplit(false);
+              }}
               className={cn(
                 "flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all",
                 type === t ? "bg-white shadow-sm text-neutral-900" : "text-neutral-400"
@@ -64,6 +74,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
             <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Amount</label>
             <input 
               type="number" 
+              step="0.01"
               value={amount} 
               onChange={e => setAmount(e.target.value)}
               placeholder="0.00"
@@ -84,15 +95,112 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
           </div>
 
           {type === 'Expense' && (
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Category</label>
-              <select 
-                value={category} 
-                onChange={e => setCategory(e.target.value)}
-                className="glass-input w-full text-sm"
-              >
-                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-              </select>
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Category</label>
+                <select 
+                  value={category} 
+                  onChange={e => setCategory(e.target.value)}
+                  className="glass-input w-full text-sm"
+                >
+                  {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                </select>
+              </div>
+
+              {/* Split Toggle */}
+              <div className="space-y-3 p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+                <label className="flex items-center justify-between cursor-pointer">
+                  <span className="text-sm font-semibold text-blue-900">Split with others?</span>
+                  <div className={cn(
+                    "w-10 h-6 rounded-full transition-all relative",
+                    isSplit ? "bg-blue-600" : "bg-neutral-200"
+                  )}>
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                      isSplit ? "left-5" : "left-1"
+                    )} />
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    checked={isSplit} 
+                    onChange={e => setIsSplit(e.target.checked)}
+                    className="hidden"
+                  />
+                </label>
+
+                {isSplit && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="space-y-3 pt-2 border-t border-blue-100"
+                  >
+                    <div className="flex p-1 bg-blue-100/50 rounded-lg">
+                      {(['Percentage', 'Equal'] as const).map(s => (
+                        <button
+                          key={s}
+                          onClick={() => setSplitType(s)}
+                          className={cn(
+                            "flex-1 py-1.5 text-[10px] font-bold uppercase rounded-md transition-all",
+                            splitType === s ? "bg-white shadow-sm text-blue-600" : "text-blue-400"
+                          )}
+                        >
+                          {s === 'Percentage' ? 'By %' : 'Equal Parts'}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase text-blue-400 ml-1">Names (comma separated)</label>
+                      <input 
+                        type="text" 
+                        value={debtorNames} 
+                        onChange={e => setDebtorNames(e.target.value)}
+                        placeholder="Name 1, Name 2, Name 3"
+                        className="glass-input w-full text-sm"
+                      />
+                    </div>
+
+                    {splitType === 'Percentage' ? (
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-blue-400 ml-1">My Share %</label>
+                        <div className="relative">
+                          <input 
+                            type="number" 
+                            step="any"
+                            value={mySharePercent} 
+                            onChange={e => setMySharePercent(e.target.value)}
+                            className="glass-input w-full text-sm pr-8"
+                            min="0"
+                            max="100"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-blue-400">%</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase text-blue-400 ml-1">Number of People</label>
+                        <input 
+                          type="number" 
+                          value={numPeople} 
+                          onChange={e => setNumPeople(e.target.value)}
+                          className="glass-input w-full text-sm"
+                          min="2"
+                        />
+                      </div>
+                    )}
+                    
+                    <div className="bg-blue-600/10 p-2 rounded-lg">
+                      <p className="text-[10px] text-blue-600 font-medium">
+                        {splitType === 'Percentage' ? (
+                          `You'll pay ${mySharePercent}% and lent the remaining ${100 - parseFloat(mySharePercent || '0')}%`
+                        ) : (
+                          `You'll pay 1/${numPeople} share and lent the rest to ${parseInt(numPeople || '2') - 1} people`
+                        )}
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
             </div>
           )}
 
@@ -175,17 +283,75 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
 
         <button 
           onClick={() => {
-            onSave({
+            const totalAmount = parseFloat(amount);
+            const commonData = {
               accountId,
               toAccountId: type === 'Transfer' ? toAccountId : undefined,
-              amount: parseFloat(amount),
-              description,
               date: new Date(date).toISOString(),
-              category: type === 'Expense' ? category : 'General',
-              type,
               isRecurring,
-              recurringFrequency: isRecurring ? recurringFrequency : undefined
-            });
+              recurringFrequency: isRecurring ? recurringFrequency : undefined,
+              type,
+            };
+
+            const results: Omit<Transaction, 'id'>[] = [];
+
+            if (type === 'Expense' && isSplit) {
+              const groupId = initialData?.groupId || Math.random().toString(36).substr(2, 9);
+              let myShareAmount: number;
+              if (splitType === 'Percentage') {
+                myShareAmount = parseFloat(((totalAmount * parseFloat(mySharePercent || '0')) / 100).toFixed(2));
+              } else {
+                myShareAmount = parseFloat((totalAmount / parseInt(numPeople || '1')).toFixed(2));
+              }
+              const lentAmount = parseFloat((totalAmount - myShareAmount).toFixed(2));
+
+              const splitMetadata = {
+                groupId,
+                splitType,
+                mySharePercent: parseFloat(mySharePercent),
+                numPeople: parseInt(numPeople),
+                totalAmount,
+                debtorNames
+              };
+
+              // Entry A: My Share
+              results.push({
+                ...commonData,
+                amount: myShareAmount,
+                description: `${description} (My Share)`,
+                category,
+                ...splitMetadata
+              });
+
+              // Entry B: Lent
+              const names = debtorNames.split(',').map(n => n.trim()).filter(Boolean);
+              let lentDescription = description;
+              if (names.length === 1) {
+                lentDescription += ` (Lent to ${names[0]})`;
+              } else if (names.length === 2) {
+                lentDescription += ` (Lent to ${names[0]} and ${names[1]})`;
+              } else if (names.length >= 3) {
+                lentDescription += ` (Lent to ${names[0]}, ${names[1]} ... )`;
+              } else {
+                lentDescription += ` (Lent)`;
+              }
+
+              results.push({
+                ...commonData,
+                amount: lentAmount,
+                description: lentDescription,
+                category: 'Lent / Owed to Me',
+                ...splitMetadata
+              });
+            } else {
+              results.push({
+                ...commonData,
+                amount: totalAmount,
+                description,
+                category: type === 'Expense' ? category : 'General',
+              });
+            }
+            onSave(results);
             onClose();
           }}
           disabled={!amount || !description}

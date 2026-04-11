@@ -4,7 +4,7 @@ import {
   Plus, Wallet, ArrowUpRight, ArrowDownLeft, 
   Settings as SettingsIcon, LayoutDashboard, ChevronRight, 
   ArrowRightLeft, Download, Upload, Trash2, Pencil, Check, X, Search, Filter,
-  ArrowDownWideNarrow, ArrowUpNarrowWide 
+  ArrowDownWideNarrow, ArrowUpNarrowWide, Copy 
 } from 'lucide-react';
 import * as dateFns from 'date-fns';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -21,7 +21,7 @@ import ResetModal from './components/ResetModal';
 const CATEGORIES = [
   "Housing & Utilities", "Groceries", "Transportation", "Medical", 
   "Insurance", "Gifts & Donations", "Investments", "Dining", 
-  "Tickets & Subscriptions", "Shopping", "Education", "Miscellaneous"
+  "Tickets & Subscriptions", "Shopping", "Education", "Lent / Owed to Me", "Miscellaneous"
 ];
 
 export default function App() {
@@ -41,6 +41,7 @@ export default function App() {
   const [filterAccount, setFilterAccount] = useState('All');
   const [sortBy, setSortBy] = useState<'date' | 'amount'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [isCopied, setIsCopied] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -159,9 +160,10 @@ export default function App() {
 
   const filteredTransactions = useMemo(() => {
     const filtered = transactions.filter(t => {
-      const query = searchQuery.toLowerCase();
-      const matchesSearch = t.description.toLowerCase().includes(query) || 
-                           t.amount.toString().includes(query);
+      const queryWords = searchQuery.toLowerCase().split(' ').filter(word => word.length > 0);
+      const searchableText = `${t.description} ${t.amount} ${t.debtorNames || ''}`.toLowerCase();
+      const matchesSearch = queryWords.length === 0 || queryWords.every(word => searchableText.includes(word));
+      
       const tDate = dateFns.parseISO(t.date);
       const matchesMonth = filterMonth === 'All' || dateFns.format(tDate, 'MMMM') === filterMonth;
       const matchesYear = filterYear === 'All' || dateFns.format(tDate, 'yyyy') === filterYear;
@@ -189,66 +191,122 @@ export default function App() {
     }, { income: 0, expense: 0 });
   }, [filteredTransactions]);
 
-  // Handlers
-  const addTransaction = (t: Omit<Transaction, 'id'>) => {
-    const id = Math.random().toString(36).substr(2, 9);
-    const newTransaction: Transaction = { ...t, id };
-    setTransactions([newTransaction, ...transactions]);
+  const copyResults = () => {
+    if (filteredTransactions.length === 0) return;
 
-    setAccounts(accounts.map(acc => {
-      if (acc.id === t.accountId) {
-        return { ...acc, balance: acc.balance + (t.type === 'Income' ? t.amount : -t.amount) };
-      }
-      if (t.type === 'Transfer' && acc.id === t.toAccountId) {
-        return { ...acc, balance: acc.balance + t.amount };
-      }
-      return acc;
-    }));
+    const text = filteredTransactions.map(t => {
+      const date = dateFns.format(dateFns.parseISO(t.date), 'dd/MM/yyyy');
+      return `${date} - ${t.description} - ${formatCurrency(t.amount)}`;
+    }).join('\n');
+
+    navigator.clipboard.writeText(text).then(() => {
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    });
   };
 
-  const updateTransaction = (id: string, updated: Omit<Transaction, 'id'>) => {
+  // Handlers
+  const addTransaction = (t: Omit<Transaction, 'id'> | Omit<Transaction, 'id'>[]) => {
+    const transactionsToAdd = Array.isArray(t) ? t : [t];
+    const newTransactions: Transaction[] = transactionsToAdd.map(tx => ({
+      ...tx,
+      id: Math.random().toString(36).substr(2, 9)
+    }));
+    
+    setTransactions(prev => [...newTransactions, ...prev]);
+
+    setAccounts(prevAccounts => {
+      let updatedAccounts = [...prevAccounts];
+      newTransactions.forEach(tx => {
+        updatedAccounts = updatedAccounts.map(acc => {
+          if (acc.id === tx.accountId) {
+            return { ...acc, balance: acc.balance + (tx.type === 'Income' ? tx.amount : -tx.amount) };
+          }
+          if (tx.type === 'Transfer' && acc.id === tx.toAccountId) {
+            return { ...acc, balance: acc.balance + tx.amount };
+          }
+          return acc;
+        });
+      });
+      return updatedAccounts;
+    });
+  };
+
+  const updateTransaction = (id: string, updated: Omit<Transaction, 'id'> | Omit<Transaction, 'id'>[]) => {
     const old = transactions.find(tx => tx.id === id);
     if (!old) return;
 
-    let tempAccounts = accounts.map(acc => {
-      if (acc.id === old.accountId) {
-        return { ...acc, balance: acc.balance - (old.type === 'Income' ? old.amount : -old.amount) };
-      }
-      if (old.type === 'Transfer' && acc.id === old.toAccountId) {
-        return { ...acc, balance: acc.balance - old.amount };
-      }
-      return acc;
+    const groupId = old.groupId;
+    const relatedTransactions = groupId ? transactions.filter(tx => tx.groupId === groupId) : [old];
+    const relatedIds = relatedTransactions.map(tx => tx.id);
+
+    const transactionsToAdd = Array.isArray(updated) ? updated : [updated];
+    const newTransactions: Transaction[] = transactionsToAdd.map(tx => ({
+      ...tx,
+      id: Math.random().toString(36).substr(2, 9)
+    }));
+
+    setAccounts(prevAccounts => {
+      let updatedAccounts = [...prevAccounts];
+      
+      // Revert old transactions
+      relatedTransactions.forEach(tx => {
+        updatedAccounts = updatedAccounts.map(acc => {
+          if (acc.id === tx.accountId) {
+            return { ...acc, balance: acc.balance - (tx.type === 'Income' ? tx.amount : -tx.amount) };
+          }
+          if (tx.type === 'Transfer' && acc.id === tx.toAccountId) {
+            return { ...acc, balance: acc.balance - tx.amount };
+          }
+          return acc;
+        });
+      });
+
+      // Apply new transactions
+      newTransactions.forEach(tx => {
+        updatedAccounts = updatedAccounts.map(acc => {
+          if (acc.id === tx.accountId) {
+            return { ...acc, balance: acc.balance + (tx.type === 'Income' ? tx.amount : -tx.amount) };
+          }
+          if (tx.type === 'Transfer' && acc.id === tx.toAccountId) {
+            return { ...acc, balance: acc.balance + tx.amount };
+          }
+          return acc;
+        });
+      });
+
+      return updatedAccounts;
     });
 
-    tempAccounts = tempAccounts.map(acc => {
-      if (acc.id === updated.accountId) {
-        return { ...acc, balance: acc.balance + (updated.type === 'Income' ? updated.amount : -updated.amount) };
-      }
-      if (updated.type === 'Transfer' && acc.id === updated.toAccountId) {
-        return { ...acc, balance: acc.balance + updated.amount };
-      }
-      return acc;
-    });
-
-    setAccounts(tempAccounts);
-    setTransactions(transactions.map(tx => tx.id === id ? { ...updated, id } : tx));
+    // Update transactions list outside of setAccounts to avoid side-effect issues
+    setTransactions(prev => [...newTransactions, ...prev.filter(tx => !relatedIds.includes(tx.id))]);
   };
 
   const deleteTransaction = (id: string) => {
     const t = transactions.find(tx => tx.id === id);
     if (!t) return;
 
-    setTransactions(transactions.filter(tx => tx.id !== id));
+    const groupId = t.groupId;
+    const relatedTransactions = groupId ? transactions.filter(tx => tx.groupId === groupId) : [t];
+    const relatedIds = relatedTransactions.map(tx => tx.id);
 
-    setAccounts(accounts.map(acc => {
-      if (acc.id === t.accountId) {
-        return { ...acc, balance: acc.balance - (t.type === 'Income' ? t.amount : -t.amount) };
-      }
-      if (t.type === 'Transfer' && acc.id === t.toAccountId) {
-        return { ...acc, balance: acc.balance - t.amount };
-      }
-      return acc;
-    }));
+    setTransactions(prev => prev.filter(tx => !relatedIds.includes(tx.id)));
+
+    setAccounts(prevAccounts => {
+      let updatedAccounts = [...prevAccounts];
+      relatedTransactions.forEach(tx => {
+        updatedAccounts = updatedAccounts.map(acc => {
+          if (acc.id === tx.accountId) {
+            return { ...acc, balance: acc.balance - (tx.type === 'Income' ? tx.amount : -tx.amount) };
+          }
+          if (tx.type === 'Transfer' && acc.id === tx.toAccountId) {
+            return { ...acc, balance: acc.balance - tx.amount };
+          }
+          return acc;
+        });
+      });
+      return updatedAccounts;
+    });
   };
 
   const addAccount = (a: Omit<Account, 'id'>) => {
@@ -414,6 +472,19 @@ export default function App() {
                       )}
                     >
                       <Filter size={16} />
+                    </button>
+                    <button
+                      onClick={copyResults}
+                      disabled={filteredTransactions.length === 0}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all",
+                        isCopied 
+                          ? "bg-emerald-100 text-emerald-600" 
+                          : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      )}
+                    >
+                      <Copy size={12} />
+                      {isCopied ? 'Copied!' : 'Copy'}
                     </button>
                   </div>
                   {(filterMonth !== dateFns.format(new Date(), 'MMMM') || filterYear !== dateFns.format(new Date(), 'yyyy') || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '' || sortBy !== 'date' || sortOrder !== 'desc') && (
@@ -583,7 +654,7 @@ export default function App() {
                              t.type === 'Transfer' ? <ArrowRightLeft size={20} /> : <ArrowUpRight size={20} />}
                           </div>
                           <div>
-                            <p className="font-semibold text-sm">{t.description}</p>
+                            <p className="font-semibold text-sm truncate max-w-[180px] sm:max-w-xs">{t.description}</p>
                             <p className="text-xs text-neutral-400">{account?.name} • {dateFns.format(dateFns.parseISO(t.date), 'MMM d')}</p>
                           </div>
                         </div>
@@ -792,9 +863,9 @@ export default function App() {
               setIsExpenseModalOpen(false);
               setEditingTransaction(null);
             }} 
-            onSave={(t) => {
-              if (editingTransaction) updateTransaction(editingTransaction.id, t);
-              else addTransaction(t);
+            onSave={(txs) => {
+              if (editingTransaction) updateTransaction(editingTransaction.id, txs);
+              else addTransaction(txs);
             }} 
             categories={CATEGORIES}
           />

@@ -19,4 +19,10 @@ export interface Transaction {
   type: 'Expense' | 'Income' | 'Transfer';
   isRecurring?: boolean;
   recurringFrequency?: 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
+  groupId?: string;
+  splitType?: 'Percentage' | 'Equal';
+  mySharePercent?: number;
+  numPeople?: number;
+  totalAmount?: number;
+  debtorNames?: string;
 }
