@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Plus, Wallet, ArrowUpRight, ArrowDownLeft, 
   Settings as SettingsIcon, LayoutDashboard, ChevronRight, 
-  ArrowRightLeft, Download, Upload, Trash2, Pencil, Check, X, Search, Filter 
+  ArrowRightLeft, Download, Upload, Trash2, Pencil, Check, X, Search, Filter,
+  ArrowDownWideNarrow, ArrowUpNarrowWide 
 } from 'lucide-react';
 import * as dateFns from 'date-fns';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -38,6 +39,8 @@ export default function App() {
   const [filterYear, setFilterYear] = useState(dateFns.format(new Date(), 'yyyy'));
   const [filterCategory, setFilterCategory] = useState('All');
   const [filterAccount, setFilterAccount] = useState('All');
+  const [sortBy, setSortBy] = useState<'date' | 'amount'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -155,8 +158,10 @@ export default function App() {
   }, [accounts, totalAssets, transactions]);
 
   const filteredTransactions = useMemo(() => {
-    return transactions.filter(t => {
-      const matchesSearch = t.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const filtered = transactions.filter(t => {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = t.description.toLowerCase().includes(query) || 
+                           t.amount.toString().includes(query);
       const tDate = dateFns.parseISO(t.date);
       const matchesMonth = filterMonth === 'All' || dateFns.format(tDate, 'MMMM') === filterMonth;
       const matchesYear = filterYear === 'All' || dateFns.format(tDate, 'yyyy') === filterYear;
@@ -164,7 +169,17 @@ export default function App() {
       const matchesAccount = filterAccount === 'All' || t.accountId === filterAccount || t.toAccountId === filterAccount;
       return matchesSearch && matchesMonth && matchesYear && matchesCategory && matchesAccount;
     });
-  }, [transactions, searchQuery, filterMonth, filterYear, filterCategory, filterAccount]);
+
+    return filtered.sort((a, b) => {
+      if (sortBy === 'date') {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+      } else {
+        return sortOrder === 'desc' ? b.amount - a.amount : a.amount - b.amount;
+      }
+    });
+  }, [transactions, searchQuery, filterMonth, filterYear, filterCategory, filterAccount, sortBy, sortOrder]);
 
   const cashFlow = useMemo(() => {
     return filteredTransactions.reduce((acc, t) => {
@@ -311,7 +326,7 @@ export default function App() {
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-screen pb-24 px-4 pt-8 relative overflow-x-hidden">
+    <div className="max-w-md mx-auto min-h-screen pb-60 px-4 pt-8 relative overflow-x-hidden">
       {/* Header */}
       <header className="mb-8 flex justify-between items-end">
         <div>
@@ -401,7 +416,7 @@ export default function App() {
                       <Filter size={16} />
                     </button>
                   </div>
-                  {(filterMonth !== dateFns.format(new Date(), 'MMMM') || filterYear !== dateFns.format(new Date(), 'yyyy') || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '') && (
+                  {(filterMonth !== dateFns.format(new Date(), 'MMMM') || filterYear !== dateFns.format(new Date(), 'yyyy') || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '' || sortBy !== 'date' || sortOrder !== 'desc') && (
                     <button 
                       onClick={() => {
                         setSearchQuery('');
@@ -409,6 +424,8 @@ export default function App() {
                         setFilterYear(dateFns.format(new Date(), 'yyyy'));
                         setFilterCategory('All');
                         setFilterAccount('All');
+                        setSortBy('date');
+                        setSortOrder('desc');
                       }}
                       className="text-[10px] font-bold uppercase text-blue-600 hover:text-blue-700 transition-colors"
                     >
@@ -424,20 +441,26 @@ export default function App() {
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden space-y-3"
+                      transition={{ 
+                        height: { duration: 0.3, ease: "easeInOut" },
+                        opacity: { duration: 0.2 }
+                      }}
+                      className="overflow-hidden"
                     >
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-neutral-400">
-                          <Search size={18} />
+                      <div className="pt-2 pb-4 space-y-3">
+                        <div className="relative group">
+                          <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-neutral-400 group-focus-within:text-blue-500 transition-colors z-10">
+                            <Search size={18} />
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="Search transactions..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="glass-input w-full py-3.5 text-sm transition-none"
+                            style={{ paddingLeft: '3rem' }}
+                          />
                         </div>
-                        <input
-                          type="text"
-                          placeholder="Search transactions..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="glass-input w-full pl-12 py-3.5 text-sm"
-                        />
-                      </div>
 
                       <div className="grid grid-cols-2 gap-2">
                         <select 
@@ -484,19 +507,72 @@ export default function App() {
                           ))}
                         </select>
                       </div>
-                    </motion.div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-[10px] font-bold uppercase text-neutral-400">Sort by:</span>
+                        <div className="flex gap-1">
+                          <button 
+                            onClick={() => setSortBy('date')}
+                            className={cn(
+                              "text-[10px] font-bold uppercase px-2 py-1 rounded-md transition-all",
+                              sortBy === 'date' ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
+                            )}
+                          >
+                            Date
+                          </button>
+                          <button 
+                            onClick={() => setSortBy('amount')}
+                            className={cn(
+                              "text-[10px] font-bold uppercase px-2 py-1 rounded-md transition-all",
+                              sortBy === 'amount' ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
+                            )}
+                          >
+                            Amount
+                          </button>
+                        </div>
+                        <div className="ml-auto">
+                          <button 
+                            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                            className="text-[10px] font-bold uppercase px-2 py-1 rounded-md bg-neutral-100 text-neutral-500 flex items-center gap-1.5 transition-all active:scale-95"
+                          >
+                            {sortOrder === 'desc' ? (
+                              <>
+                                <ArrowDownWideNarrow size={12} />
+                                {sortBy === 'date' ? 'Newest' : 'Highest'}
+                              </>
+                            ) : (
+                              <>
+                                <ArrowUpNarrowWide size={12} />
+                                {sortBy === 'date' ? 'Oldest' : 'Lowest'}
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
                   )}
                 </AnimatePresence>
                 
                 {/* Transaction List */}
-                <div className="space-y-4">
-                  {filteredTransactions.map(t => {
-                    const account = accounts.find(a => a.id === t.accountId);
-                    return (
-                      <div 
-                        key={t.id} 
-                        className="glass-card p-4 flex items-center justify-between group border-l-4 border-l-blue-400 transition-all"
-                      >
+                <motion.div 
+                  layout="position"
+                  transition={{ layout: { duration: 0.3, ease: "easeInOut" } }}
+                  className="space-y-4"
+                >
+                  <AnimatePresence>
+                    {filteredTransactions.map(t => {
+                      const account = accounts.find(a => a.id === t.accountId);
+                      return (
+                        <motion.div 
+                          layout
+                          key={t.id} 
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          transition={{ duration: 0.2 }}
+                          className="glass-card p-4 flex items-center justify-between group border-l-4 border-l-blue-400"
+                        >
                         <div className="flex items-center gap-4">
                           <div className={cn(
                             "w-10 h-10 rounded-xl flex items-center justify-center",
@@ -518,19 +594,20 @@ export default function App() {
                           )}>
                             {t.type === 'Income' ? '+' : '-'}{formatCurrency(t.amount)}
                           </p>
-                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => setEditingTransaction(t)} className="text-neutral-400 hover:text-blue-500 p-1">
+                          <div className="flex items-center gap-1 mt-1">
+                            <button onClick={() => setEditingTransaction(t)} className="text-neutral-300 hover:text-blue-500 p-1 transition-colors">
                               <Pencil size={14} />
                             </button>
-                            <button onClick={() => deleteTransaction(t.id)} className="text-neutral-400 hover:text-red-500 p-1">
+                            <button onClick={() => deleteTransaction(t.id)} className="text-neutral-300 hover:text-red-500 p-1 transition-colors">
                               <Trash2 size={14} />
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
                     );
                   })}
-                </div>
+                </AnimatePresence>
+              </motion.div>
 
                 {filteredTransactions.length === 0 && (
                   <div className="text-center py-12 text-neutral-400">
@@ -558,50 +635,51 @@ export default function App() {
                 </div>
               </div>
               
-              <div className="grid gap-4">
+              <div className="grid gap-3">
                 {accounts.map(acc => (
-                  <div key={acc.id} className="glass-card p-6 space-y-4">
-                    <div className="flex justify-between items-start">
+                  <div key={acc.id} className="glass-card p-4 space-y-3">
+                    <div className="flex justify-between items-center">
                       <div className="flex items-center gap-3">
-                        <div className={cn("w-3 h-3 rounded-full", acc.color)} />
+                        <div className={cn("w-2.5 h-2.5 rounded-full", acc.color)} />
                         <div>
-                          <h3 className="font-bold">{acc.name}</h3>
-                          <p className="text-xs text-neutral-400 uppercase font-bold tracking-widest">{acc.type}</p>
+                          <h3 className="font-bold text-sm">{acc.name}</h3>
+                          <p className="text-[10px] text-neutral-400 uppercase font-bold tracking-widest">{acc.type}</p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className={cn("text-xl font-bold", acc.balance < 0 ? "text-red-500" : "text-neutral-900")}>
-                          {formatCurrency(acc.balance)}
-                        </p>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className={cn("text-base font-bold", acc.balance < 0 ? "text-red-500" : "text-neutral-900")}>
+                            {formatCurrency(acc.balance)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setEditingAccount(acc)} className="text-neutral-300 hover:text-blue-500 p-1">
+                            <Pencil size={14} />
+                          </button>
+                          <button onClick={() => deleteAccount(acc.id)} className="text-neutral-300 hover:text-red-400 p-1">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
                     </div>
 
                     {acc.type === 'Credit Card' && (
-                      <div className="pt-4 border-t border-neutral-100 flex justify-between items-center">
-                        <div className="text-xs text-neutral-500">
-                          <p>Billing: Day {acc.billingDate}</p>
-                          <p>Due: Day {acc.dueDate}</p>
+                      <div className="pt-2 border-t border-neutral-100 flex justify-between items-center">
+                        <div className="text-[10px] text-neutral-500 flex gap-3">
+                          <p><span className="font-bold uppercase">Bill:</span> Day {acc.billingDate}</p>
+                          <p><span className="font-bold uppercase">Due:</span> Day {acc.dueDate}</p>
                         </div>
                         <button 
                           onClick={() => {
                             setSelectedCreditCard(acc);
                             setIsPayBillModalOpen(true);
                           }}
-                          className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                          className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg hover:bg-blue-100 transition-colors"
                         >
                           PAY BILL
                         </button>
                       </div>
                     )}
-
-                    <div className="flex justify-end items-center gap-3">
-                      <button onClick={() => setEditingAccount(acc)} className="text-neutral-300 hover:text-blue-500">
-                        <Pencil size={16} />
-                      </button>
-                      <button onClick={() => deleteAccount(acc.id)} className="text-neutral-300 hover:text-red-400">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
                   </div>
                 ))}
               </div>
