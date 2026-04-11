@@ -190,7 +190,11 @@ export default function App() {
   const cashFlow = useMemo(() => {
     return baseFilteredTransactions.reduce((acc, t) => {
       if (t.type === 'Income') {
-        acc.income += t.amount;
+        if (t.category === 'Lent / Owed to Me') {
+          acc.lent -= t.amount;
+        } else {
+          acc.income += t.amount;
+        }
       } else if (t.type === 'Expense') {
         // A transaction is "Lent" if it's in the Lent category AND it's not the user's own share of a split
         if (t.category === 'Lent / Owed to Me' && !t.description.includes('(My Share)')) {
@@ -206,7 +210,7 @@ export default function App() {
   const filteredTransactions = useMemo(() => {
     if (filterType === 'All') return baseFilteredTransactions;
     return baseFilteredTransactions.filter(t => {
-      if (filterType === 'Income') return t.type === 'Income';
+      if (filterType === 'Income') return t.type === 'Income' && t.category !== 'Lent / Owed to Me';
       if (filterType === 'Lent') return t.category === 'Lent / Owed to Me';
       if (filterType === 'Expense') return t.type === 'Expense' && t.category !== 'Lent / Owed to Me';
       return true;
@@ -533,7 +537,7 @@ export default function App() {
                     <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Expenses</p>
                     <p className="text-xl font-bold text-red-500">{formatCurrency(cashFlow.expense)}</p>
                   </button>
-                  {cashFlow.lent > 0 && (
+                  {Math.abs(cashFlow.lent) > 0.01 && (
                     <button 
                       onClick={() => setFilterType(filterType === 'Lent' ? 'All' : 'Lent')}
                       className={cn(

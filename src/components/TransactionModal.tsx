@@ -34,6 +34,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
   const [date, setDate] = useState(initialData ? dateFns.format(dateFns.parseISO(initialData.date), 'yyyy-MM-dd') : dateFns.format(new Date(), 'yyyy-MM-dd'));
   const [isRecurring, setIsRecurring] = useState(initialData?.isRecurring || false);
   const [recurringFrequency, setRecurringFrequency] = useState<Transaction['recurringFrequency']>(initialData?.recurringFrequency || 'Monthly');
+  const [isSettlingDebt, setIsSettlingDebt] = useState(initialData?.type === 'Income' && initialData?.category === 'Lent / Owed to Me');
 
   // Calculator Logic
   const calculateResult = (input: string): number | null => {
@@ -98,6 +99,21 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
             </button>
           ))}
         </div>
+
+        {type === 'Income' && (
+          <div className="flex items-center justify-between p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100">
+            <span className="text-sm font-semibold text-emerald-900">Settling a debt or Reversed Expense?</span>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={isSettlingDebt} 
+                onChange={e => setIsSettlingDebt(e.target.checked)}
+                className="sr-only peer" 
+              />
+              <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+            </label>
+          </div>
+        )}
 
         <div className="space-y-4">
           <div className="space-y-1">
@@ -421,7 +437,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                 ...commonData,
                 amount: totalAmount,
                 description,
-                category: type === 'Expense' ? category : 'General',
+                category: type === 'Expense' ? category : (isSettlingDebt ? 'Lent / Owed to Me' : 'General'),
               });
             }
             onSave(results);
