@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { X } from 'lucide-react';
 import * as dateFns from 'date-fns';
@@ -30,6 +30,24 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
   const [date, setDate] = useState(initialData ? dateFns.format(dateFns.parseISO(initialData.date), 'yyyy-MM-dd') : dateFns.format(new Date(), 'yyyy-MM-dd'));
   const [isRecurring, setIsRecurring] = useState(initialData?.isRecurring || false);
   const [recurringFrequency, setRecurringFrequency] = useState<Transaction['recurringFrequency']>(initialData?.recurringFrequency || 'Monthly');
+
+  // Calculator Logic
+  const calculateResult = (input: string): number | null => {
+    try {
+      // Remove any characters that aren't numbers, operators, or dots
+      const sanitized = input.replace(/[^0-9+\-*/.]/g, '');
+      if (!sanitized || !/[0-9]/.test(sanitized)) return null;
+      
+      // Basic evaluation using Function constructor (safer than eval if sanitized)
+      // We only allow simple arithmetic
+      const result = new Function(`return ${sanitized}`)();
+      return typeof result === 'number' && isFinite(result) ? parseFloat(result.toFixed(2)) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const calculatedAmount = useMemo(() => calculateResult(amount), [amount]);
 
   // Split Logic State
   const [isSplit, setIsSplit] = useState(!!initialData?.groupId);
@@ -79,16 +97,33 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
 
         <div className="space-y-4">
           <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Amount</label>
-            <input 
-              type="number" 
-              step="0.01"
-              value={amount} 
-              onChange={e => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="glass-input w-full text-2xl font-bold h-auto py-2"
-              autoFocus
-            />
+            <div className="flex justify-between items-center ml-1">
+              <label className="text-[10px] font-bold uppercase text-neutral-400">Amount</label>
+              {calculatedAmount !== null && amount.match(/[+\-*/]/) && (
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  onClick={() => setAmount(calculatedAmount.toString())}
+                  className="text-[10px] font-bold uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md hover:bg-blue-100 transition-colors"
+                >
+                  Apply: {formatCurrency(calculatedAmount)}
+                </motion.button>
+              )}
+            </div>
+            <div className="relative">
+              <input 
+                type="text" 
+                inputMode="decimal"
+                value={amount} 
+                onChange={e => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="glass-input w-full text-2xl font-bold h-auto py-2 pr-10"
+                autoFocus
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-300">
+                <span className="text-xs font-bold">₹</span>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-1">
@@ -311,7 +346,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
 
         <button 
           onClick={() => {
-            const totalAmount = parseFloat(amount);
+            const totalAmount = calculatedAmount || parseFloat(amount) || 0;
             const commonData = {
               accountId,
               toAccountId: type === 'Transfer' ? toAccountId : undefined,
@@ -389,7 +424,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
             onSave(results);
             onClose();
           }}
-          disabled={!amount || !description}
+          disabled={(!calculatedAmount && isNaN(parseFloat(amount))) || !description}
           className="w-full bg-neutral-900 text-white py-4 rounded-2xl font-bold hover:bg-neutral-800 transition-colors disabled:opacity-50"
         >
           {initialData ? 'Update Transaction' : 'Save Transaction'}

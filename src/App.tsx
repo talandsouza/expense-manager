@@ -670,7 +670,7 @@ export default function App() {
                 <motion.div 
                   layout="position"
                   transition={{ layout: { duration: 0.3, ease: "easeInOut" } }}
-                  className="space-y-4"
+                  className="space-y-2"
                 >
                   <AnimatePresence>
                     {filteredTransactions.map(t => {
@@ -683,35 +683,41 @@ export default function App() {
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.95 }}
                           transition={{ duration: 0.2 }}
-                          className="glass-card p-4 flex items-center justify-between group border-l-4 border-l-blue-400 gap-3"
+                          className="glass-card p-3 flex items-center justify-between group border-l-4 border-l-blue-400 gap-3"
                         >
-                        <div className="flex items-center gap-4 min-w-0">
+                        <div className="flex items-center gap-3 min-w-0">
                           <div className={cn(
-                            "w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center",
+                            "w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center",
                             t.type === 'Income' ? "bg-emerald-100 text-emerald-600" : 
                             t.type === 'Transfer' ? "bg-blue-100 text-blue-600" : "bg-neutral-100 text-neutral-600"
                           )}>
-                            {t.type === 'Income' ? <ArrowDownLeft size={20} /> : 
-                             t.type === 'Transfer' ? <ArrowRightLeft size={20} /> : <ArrowUpRight size={20} />}
+                            {t.type === 'Income' ? <ArrowDownLeft size={16} /> : 
+                             t.type === 'Transfer' ? <ArrowRightLeft size={16} /> : <ArrowUpRight size={16} />}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-semibold text-sm truncate">{t.description}</p>
-                            <p className="text-xs text-neutral-400 truncate">{account?.name} • {dateFns.format(dateFns.parseISO(t.date), 'MMM d')}</p>
+                            <p className="font-semibold text-sm truncate leading-tight">{t.description}</p>
+                            <p className="text-[10px] text-neutral-400 truncate mt-0.5">{account?.name} • {dateFns.format(dateFns.parseISO(t.date), 'MMM d')}</p>
                           </div>
                         </div>
                         <div className="flex flex-col items-end flex-shrink-0">
                           <p className={cn(
-                            "font-bold text-sm whitespace-nowrap",
+                            "font-bold text-sm whitespace-nowrap leading-tight",
                             t.type === 'Income' ? "text-emerald-600" : "text-neutral-900"
                           )}>
                             {t.type === 'Income' ? '+' : '-'}{formatCurrency(t.amount)}
                           </p>
                           <div className="flex items-center gap-1 mt-1">
-                            <button onClick={() => setEditingTransaction(t)} className="text-neutral-300 hover:text-blue-500 p-1 transition-colors">
-                              <Pencil size={14} />
+                            <button 
+                              onClick={() => setEditingTransaction(t)} 
+                              className="text-neutral-400 hover:text-blue-500 p-1 transition-colors active:scale-90"
+                            >
+                              <Pencil size={12} />
                             </button>
-                            <button onClick={() => deleteTransaction(t.id)} className="text-neutral-300 hover:text-red-500 p-1 transition-colors">
-                              <Trash2 size={14} />
+                            <button 
+                              onClick={() => deleteTransaction(t.id)} 
+                              className="text-neutral-400 hover:text-red-500 p-1 transition-colors active:scale-90"
+                            >
+                              <Trash2 size={12} />
                             </button>
                           </div>
                         </div>
