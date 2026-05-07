@@ -19,6 +19,7 @@ export interface Transaction {
   type: 'Expense' | 'Income' | 'Transfer';
   isRecurring?: boolean;
   recurringFrequency?: 'Daily' | 'Weekly' | 'Monthly' | 'Yearly';
+  recurringEndDate?: string;
   groupId?: string;
   splitType?: 'Percentage' | 'Equal' | 'Amount';
   mySharePercent?: number;
@@ -27,4 +28,5 @@ export interface Transaction {
   totalAmount?: number;
   debtorNames?: string;
   originalCategory?: string;
+  isProjected?: boolean;
 }

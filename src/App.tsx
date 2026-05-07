@@ -46,11 +46,11 @@ export default function App() {
   const [isCopied, setIsCopied] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [filterType, setFilterType] = useState<'All' | 'Income' | 'Expense' | 'Lent'>('All');
+  const [filterType, setFilterType] = useState<'All' | 'Income' | 'Expense' | 'Lent' | 'Recurring'>('All');
 
   // Recurring Logic
   useEffect(() => {
-    const today = new Date();
+    const today = dateFns.startOfDay(new Date());
     let accountsUpdated = false;
     let tempAccounts = [...accounts];
     let tempTransactions = [...transactions];
@@ -58,29 +58,32 @@ export default function App() {
 
     const processedTransactions = tempTransactions.map(t => {
       if (t.isRecurring && t.recurringFrequency) {
-        let nextDate = dateFns.parseISO(t.date);
-        let hasGenerated = false;
+        let currentIterDate = dateFns.parseISO(t.date);
+        const endDate = t.recurringEndDate ? dateFns.parseISO(t.recurringEndDate) : null;
+
+        if (endDate && dateFns.isAfter(dateFns.startOfDay(currentIterDate), endDate)) {
+          return { ...t, isRecurring: false };
+        }
+
+        let hasGeneratedInstances = false;
 
         while (true) {
-          let potentialNextDate: Date;
-          if (t.recurringFrequency === 'Daily') potentialNextDate = dateFns.addDays(nextDate, 1);
-          else if (t.recurringFrequency === 'Weekly') potentialNextDate = dateFns.addWeeks(nextDate, 1);
-          else if (t.recurringFrequency === 'Monthly') potentialNextDate = dateFns.addMonths(nextDate, 1);
-          else potentialNextDate = dateFns.addYears(nextDate, 1);
+          // If the scheduled date is in the future, we don't materialize it yet
+          if (dateFns.isAfter(dateFns.startOfDay(currentIterDate), today)) break;
+          // If we've passed the end date, stop
+          if (endDate && dateFns.isAfter(dateFns.startOfDay(currentIterDate), endDate)) break;
 
-          if (dateFns.isAfter(potentialNextDate, today)) break;
-
+          // Materialize the instance at currentIterDate
           const id = Math.random().toString(36).substr(2, 9);
-          const newInstance: Transaction = {
+          const staticInstance: Transaction = {
             ...t,
             id,
-            date: potentialNextDate.toISOString(),
+            date: currentIterDate.toISOString(),
             isRecurring: false,
           };
-          newTransactionsAdded.push(newInstance);
-          nextDate = potentialNextDate;
-          hasGenerated = true;
+          newTransactionsAdded.push(staticInstance);
           
+          // Update balances for the materialized instance
           tempAccounts = tempAccounts.map(acc => {
             if (acc.id === t.accountId) {
               return { ...acc, balance: acc.balance + (t.type === 'Income' ? t.amount : -t.amount) };
@@ -91,10 +94,25 @@ export default function App() {
             return acc;
           });
           accountsUpdated = true;
+          
+          // Calculate next occurrence
+          let nextOccurrence: Date;
+          if (t.recurringFrequency === 'Daily') nextOccurrence = dateFns.addDays(currentIterDate, 1);
+          else if (t.recurringFrequency === 'Weekly') nextOccurrence = dateFns.addWeeks(currentIterDate, 1);
+          else if (t.recurringFrequency === 'Monthly') nextOccurrence = dateFns.addMonths(currentIterDate, 1);
+          else nextOccurrence = dateFns.addYears(currentIterDate, 1);
+          
+          currentIterDate = nextOccurrence;
+          hasGeneratedInstances = true;
         }
 
-        if (hasGenerated) {
-          return { ...t, date: nextDate.toISOString() };
+        if (hasGeneratedInstances) {
+          const isExpired = endDate && dateFns.isAfter(dateFns.startOfDay(currentIterDate), endDate);
+          return { 
+            ...t, 
+            date: currentIterDate.toISOString(),
+            isRecurring: isExpired ? false : t.isRecurring 
+          };
         }
       }
       return t;
@@ -106,25 +124,35 @@ export default function App() {
         setAccounts(tempAccounts);
       }
     }
-  }, []);
+  }, [transactions.length]); // Re-run when transaction count changes to catch new recurring setups
 
   // Derived Data
   const netWorth = useMemo(() => accounts.reduce((acc, curr) => acc + curr.balance, 0), [accounts]);
+  const [balanceDisplayMode, setBalanceDisplayMode] = useState<'Net' | 'Gross'>('Net');
   const totalAssets = useMemo(() => accounts.filter(a => a.type !== 'Credit Card').reduce((acc, curr) => acc + curr.balance, 0), [accounts]);
+  const totalCreditDues = useMemo(() => accounts.filter(a => a.type === 'Credit Card').reduce((acc, curr) => acc + Math.abs(curr.balance), 0), [accounts]);
   
   const peaceOfMind = useMemo(() => {
-    const cc = accounts.find(a => a.type === 'Credit Card' && a.balance < 0);
-    if (!cc) return null;
+    const ccAccountsWithBalance = accounts.filter(a => a.type === 'Credit Card' && a.balance < 0);
+    if (ccAccountsWithBalance.length === 0) return null;
     
-    const amount = Math.abs(cc.balance);
-    const coverage = totalAssets / amount;
+    const totalCcaAmount = ccAccountsWithBalance.reduce((acc, curr) => acc + Math.abs(curr.balance), 0);
+    const coverage = totalAssets / totalCcaAmount;
     
     const today = new Date();
-    let dueDate = new Date(today.getFullYear(), today.getMonth(), cc.dueDate || 1);
-    if (dateFns.isAfter(today, dueDate)) {
-      dueDate = dateFns.addMonths(dueDate, 1);
-    }
-    const daysLeft = dateFns.differenceInDays(dueDate, today);
+    let earliestDueDate: Date | null = null;
+
+    ccAccountsWithBalance.forEach(cc => {
+      let dueDate = new Date(today.getFullYear(), today.getMonth(), cc.dueDate || 1);
+      if (dateFns.isAfter(today, dueDate)) {
+        dueDate = dateFns.addMonths(dueDate, 1);
+      }
+      if (!earliestDueDate || dateFns.isBefore(dueDate, earliestDueDate)) {
+        earliestDueDate = dueDate;
+      }
+    });
+
+    const daysLeft = earliestDueDate ? dateFns.differenceInDays(earliestDueDate, today) : 0;
 
     // Pending Dues Logic
     const overdueCards: string[] = [];
@@ -153,7 +181,7 @@ export default function App() {
     const hasPendingDues = overdueCards.length > 0;
 
     return {
-      amount,
+      amount: totalCcaAmount,
       daysLeft,
       coverage: coverage.toFixed(1),
       isSafe: coverage > 1.5 && !hasPendingDues,
@@ -163,20 +191,106 @@ export default function App() {
   }, [accounts, totalAssets, transactions]);
 
   const baseFilteredTransactions = useMemo(() => {
-    const filtered = transactions.filter(t => {
+    const filterFn = (t: Transaction, overrideDate?: string) => {
+      const isRecurringView = filterType === 'Recurring';
+      
+      // When viewing recurring master list, ignore other filters
+      if (isRecurringView) {
+        return t.isRecurring === true;
+      }
+
       const queryWords = searchQuery.toLowerCase().split(' ').filter(word => word.length > 0);
       const searchableText = `${t.description} ${t.amount} ${t.debtorNames || ''}`.toLowerCase();
       const matchesSearch = queryWords.length === 0 || queryWords.every(word => searchableText.includes(word));
       
-      const tDate = dateFns.parseISO(t.date);
+      const tDate = dateFns.parseISO(overrideDate || t.date);
+      
       const matchesMonth = filterMonth === 'All' || dateFns.format(tDate, 'MMMM') === filterMonth;
       const matchesYear = filterYear === 'All' || dateFns.format(tDate, 'yyyy') === filterYear;
       const matchesCategory = filterCategory === 'All' || t.category === filterCategory;
       const matchesAccount = filterAccount === 'All' || t.accountId === filterAccount || t.toAccountId === filterAccount;
-      return matchesSearch && matchesMonth && matchesYear && matchesCategory && matchesAccount;
-    });
+      
+      const matchesType = filterType === 'All' || t.type === filterType;
 
-    return filtered.sort((a, b) => {
+      return matchesSearch && matchesMonth && matchesYear && matchesCategory && matchesAccount && matchesType;
+    };
+
+    const realFiltered = transactions.filter(t => filterFn(t));
+
+    // Dynamic projections for recurring transactions
+    const projections: Transaction[] = [];
+    const today = new Date();
+    const isRecurringView = filterType === 'Recurring';
+    
+    if (!isRecurringView) {
+      let rangeStart: Date;
+      let rangeEnd: Date;
+
+      if (filterYear === 'All') {
+        if (filterMonth === 'All') {
+          // Project for next 3 months to avoid cluttering but show immediate future
+          rangeStart = dateFns.startOfDay(today);
+          rangeEnd = dateFns.addMonths(rangeStart, 3);
+        } else {
+          // Specific month, use current year
+          const monthIndex = dateFns.getMonth(dateFns.parse(filterMonth, 'MMMM', new Date()));
+          rangeStart = dateFns.startOfMonth(new Date(today.getFullYear(), monthIndex));
+          rangeEnd = dateFns.endOfMonth(rangeStart);
+        }
+      } else {
+        const year = parseInt(filterYear);
+        if (filterMonth === 'All') {
+          rangeStart = dateFns.startOfYear(new Date(year, 0, 1));
+          rangeEnd = dateFns.endOfYear(rangeStart);
+        } else {
+          const monthIndex = dateFns.getMonth(dateFns.parse(filterMonth, 'MMMM', new Date()));
+          rangeStart = dateFns.startOfMonth(new Date(year, monthIndex));
+          rangeEnd = dateFns.endOfMonth(rangeStart);
+        }
+      }
+
+      // Only project if the filter period includes future dates
+      if (!dateFns.isBefore(rangeEnd, today)) {
+        transactions.forEach(t => {
+          if (t.isRecurring && t.recurringFrequency) {
+            let nextDate = dateFns.parseISO(t.date);
+            const endDate = t.recurringEndDate ? dateFns.parseISO(t.recurringEndDate) : null;
+
+            // Project instances for the filtered period
+            // limit to prevent infinite loops or excessive iterations (max 400 instances per transaction)
+            let safetyCounter = 0;
+            while (safetyCounter < 400 && (dateFns.isBefore(nextDate, rangeEnd) || dateFns.isSameDay(nextDate, rangeEnd))) {
+              // If the date is in the future AND in the filtered period
+              const isInFuture = dateFns.isAfter(nextDate, today);
+              const isInRange = (dateFns.isAfter(nextDate, rangeStart) || dateFns.isSameDay(nextDate, rangeStart)) &&
+                               (dateFns.isBefore(nextDate, rangeEnd) || dateFns.isSameDay(nextDate, rangeEnd));
+              
+              if (isInFuture && isInRange && filterFn(t, nextDate.toISOString())) {
+                projections.push({
+                  ...t,
+                  id: `projected-${t.id}-${nextDate.getTime()}`,
+                  date: nextDate.toISOString(),
+                  isProjected: true
+                });
+              }
+
+              // Advance nextDate
+              if (t.recurringFrequency === 'Daily') nextDate = dateFns.addDays(nextDate, 1);
+              else if (t.recurringFrequency === 'Weekly') nextDate = dateFns.addWeeks(nextDate, 1);
+              else if (t.recurringFrequency === 'Monthly') nextDate = dateFns.addMonths(nextDate, 1);
+              else nextDate = dateFns.addYears(nextDate, 1);
+
+              if (endDate && dateFns.isAfter(nextDate, endDate)) break;
+              safetyCounter++;
+            }
+          }
+        });
+      }
+    }
+
+    const all = [...realFiltered, ...projections];
+
+    return all.sort((a, b) => {
       if (sortBy === 'date') {
         const dateA = new Date(a.date).getTime();
         const dateB = new Date(b.date).getTime();
@@ -185,7 +299,7 @@ export default function App() {
         return sortOrder === 'desc' ? b.amount - a.amount : a.amount - b.amount;
       }
     });
-  }, [transactions, searchQuery, filterMonth, filterYear, filterCategory, filterAccount, sortBy, sortOrder]);
+  }, [transactions, searchQuery, filterMonth, filterYear, filterCategory, filterAccount, sortBy, sortOrder, filterType]);
 
   const cashFlow = useMemo(() => {
     return baseFilteredTransactions.reduce((acc, t) => {
@@ -218,6 +332,7 @@ export default function App() {
   }, [baseFilteredTransactions, filterType]);
 
   const filterDescription = useMemo(() => {
+    if (filterType === 'Recurring') return 'All Recurring Transactions';
     const parts = [];
     
     // Time period
@@ -387,13 +502,13 @@ export default function App() {
     setTransactions(transactions.filter(t => t.accountId !== id && t.toAccountId !== id));
   };
 
-  const payBill = (ccId: string, fromId: string, amount: number) => {
+  const payBill = (ccId: string, fromId: string, amount: number, date: string) => {
     addTransaction({
       accountId: fromId,
       toAccountId: ccId,
       amount,
       description: `Bill Payment`,
-      date: new Date().toISOString(),
+      date: dateFns.parseISO(date).toISOString(),
       category: 'Payment',
       type: 'Transfer'
     });
@@ -450,10 +565,34 @@ export default function App() {
   return (
     <div className="max-w-md mx-auto min-h-screen pb-60 px-4 pt-8 relative overflow-x-hidden">
       {/* Header */}
-      <header className="mb-8 flex justify-between items-end">
-        <div>
-          <p className="text-neutral-500 text-sm font-medium uppercase tracking-wider">Available Funds</p>
-          <h1 className="text-4xl font-bold tracking-tight">{formatCurrency(netWorth)}</h1>
+      <header className="mb-8 flex justify-between items-start">
+        <div className="space-y-2">
+          <div className="flex items-center gap-1 bg-neutral-100 p-0.5 rounded-full w-fit">
+            <button 
+              onClick={() => setBalanceDisplayMode('Net')}
+              className={cn(
+                "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
+                balanceDisplayMode === 'Net' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
+              )}
+            >
+              Net
+            </button>
+            <button 
+              onClick={() => setBalanceDisplayMode('Gross')}
+              className={cn(
+                "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
+                balanceDisplayMode === 'Gross' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
+              )}
+            >
+              Gross
+            </button>
+          </div>
+          <h1 className="text-4xl font-bold tracking-tight">
+            {formatCurrency(balanceDisplayMode === 'Net' ? netWorth : totalAssets)}
+          </h1>
+          <p className="text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
+            {balanceDisplayMode === 'Net' ? 'Available Funds' : 'Total Assets'}
+          </p>
         </div>
         <div className="flex gap-2">
           <button 
@@ -584,8 +723,8 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setSearchQuery('');
-                        setFilterMonth(dateFns.format(new Date(), 'MMMM'));
-                        setFilterYear(dateFns.format(new Date(), 'yyyy'));
+                        setFilterMonth('All');
+                        setFilterYear('All');
                         setFilterCategory('All');
                         setFilterAccount('All');
                         setSortBy('date');
@@ -613,6 +752,22 @@ export default function App() {
                       className="overflow-hidden"
                     >
                       <div className="pt-2 pb-4 space-y-3">
+                        <div className="flex flex-wrap gap-2">
+                          {(['All', 'Income', 'Expense', 'Lent', 'Recurring'] as const).map((type) => (
+                            <button
+                              key={type}
+                              onClick={() => setFilterType(type)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all",
+                                filterType === type 
+                                  ? "bg-blue-500 text-white shadow-lg shadow-blue-200" 
+                                  : "bg-white/50 text-neutral-500 hover:bg-white"
+                              )}
+                            >
+                              {type}
+                            </button>
+                          ))}
+                        </div>
                         <div className="relative group">
                           <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-neutral-400 group-focus-within:text-blue-500 transition-colors z-10">
                             <Search size={18} />
@@ -645,7 +800,7 @@ export default function App() {
                           className="glass-input text-[10px] font-bold uppercase py-2 px-2"
                         >
                           <option value="All">Year</option>
-                          {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                          {Array.from({ length: 8 }, (_, i) => new Date().getFullYear() + 2 - i).map(y => (
                             <option key={y} value={y.toString()}>{y}</option>
                           ))}
                         </select>
@@ -736,19 +891,38 @@ export default function App() {
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.95 }}
                           transition={{ duration: 0.2 }}
-                          className="glass-card p-3 flex items-center justify-between group border-l-4 border-l-blue-400 gap-3"
+                          className={cn(
+                            "glass-card p-3 flex items-center justify-between group border-l-4 border-l-blue-400 gap-3",
+                            t.isProjected && "opacity-50 border-dashed bg-white/30"
+                          )}
                         >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className={cn(
                             "w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center",
                             t.type === 'Income' ? "bg-emerald-100 text-emerald-600" : 
-                            t.type === 'Transfer' ? "bg-blue-100 text-blue-600" : "bg-neutral-100 text-neutral-600"
+                            t.type === 'Transfer' ? "bg-blue-100 text-blue-600" : "bg-neutral-100 text-neutral-600",
+                            t.isProjected && "grayscale"
                           )}>
                             {t.type === 'Income' ? <ArrowDownLeft size={16} /> : 
                              t.type === 'Transfer' ? <ArrowRightLeft size={16} /> : <ArrowUpRight size={16} />}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-semibold text-sm truncate leading-tight">{t.description}</p>
+                            <p className="font-semibold text-sm truncate leading-tight">
+                              {t.description}
+                              {filterType !== 'Recurring' && (t.isProjected || (t.isRecurring && dateFns.isAfter(dateFns.parseISO(t.date), new Date()))) && (
+                                <span className={cn(
+                                  "ml-2 text-[8px] font-bold uppercase py-0.5 px-1 rounded",
+                                  t.isProjected ? "bg-amber-100 text-amber-600" : "bg-neutral-200 text-neutral-500"
+                                )}>
+                                  Upcoming
+                                </span>
+                              )}
+                              {!t.isProjected && t.isRecurring && (
+                                <span className="ml-2 text-[8px] font-bold uppercase py-0.5 px-1 bg-blue-100 text-blue-600 rounded">
+                                  {t.recurringFrequency}
+                                </span>
+                              )}
+                            </p>
                             <p className="text-[10px] text-neutral-400 truncate mt-0.5">{account?.name} • {dateFns.format(dateFns.parseISO(t.date), 'MMM d')}</p>
                           </div>
                         </div>
@@ -762,27 +936,29 @@ export default function App() {
                           )}>
                             {t.type === 'Income' ? '+' : '-'}{formatCurrency(t.amount)}
                           </p>
-                          <div className="flex items-center gap-1 mt-1">
-                            <button 
-                              onClick={() => {
-                                if (t.groupId) {
-                                  const master = transactions.find(tx => tx.groupId === t.groupId && tx.description.includes('(My Share)'));
-                                  setEditingTransaction(master || t);
-                                } else {
-                                  setEditingTransaction(t);
-                                }
-                              }} 
-                              className="text-neutral-400 hover:text-blue-500 p-1 transition-colors active:scale-90"
-                            >
-                              <Pencil size={12} />
-                            </button>
-                            <button 
-                              onClick={() => deleteTransaction(t.id)} 
-                              className="text-neutral-400 hover:text-red-500 p-1 transition-colors active:scale-90"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
+                          {!t.isProjected && (
+                            <div className="flex items-center gap-1 mt-1">
+                              <button 
+                                onClick={() => {
+                                  if (t.groupId) {
+                                    const master = transactions.find(tx => tx.groupId === t.groupId && tx.description.includes('(My Share)'));
+                                    setEditingTransaction(master || t);
+                                  } else {
+                                    setEditingTransaction(t);
+                                  }
+                                }} 
+                                className="text-neutral-400 hover:text-blue-500 p-1 transition-colors active:scale-90"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                              <button 
+                                onClick={() => deleteTransaction(t.id)} 
+                                className="text-neutral-400 hover:text-red-500 p-1 transition-colors active:scale-90"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </motion.div>
                     );

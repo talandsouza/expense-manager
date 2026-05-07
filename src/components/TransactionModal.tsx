@@ -34,6 +34,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
   const [date, setDate] = useState(initialData ? dateFns.format(dateFns.parseISO(initialData.date), 'yyyy-MM-dd') : dateFns.format(new Date(), 'yyyy-MM-dd'));
   const [isRecurring, setIsRecurring] = useState(initialData?.isRecurring || false);
   const [recurringFrequency, setRecurringFrequency] = useState<Transaction['recurringFrequency']>(initialData?.recurringFrequency || 'Monthly');
+  const [recurringEndDate, setRecurringEndDate] = useState(initialData?.recurringEndDate ? dateFns.format(dateFns.parseISO(initialData.recurringEndDate), 'yyyy-MM-dd') : '');
   const [isSettlingDebt, setIsSettlingDebt] = useState(initialData?.type === 'Income' && initialData?.category === 'Lent / Owed to Me');
 
   // Calculator Logic
@@ -298,7 +299,8 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                 {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </div>
-            {type === 'Transfer' ? (
+
+            {type === 'Transfer' && (
               <div className="space-y-1 min-w-0">
                 <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">To Account</label>
                 <select 
@@ -309,17 +311,17 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                   {accounts.filter(a => a.id !== accountId).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </div>
-            ) : (
-              <div className="space-y-1 min-w-0">
-                <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Date</label>
-                <input 
-                  type="date" 
-                  value={date} 
-                  onChange={e => setDate(e.target.value)}
-                  className="glass-input w-full text-sm appearance-none"
-                />
-              </div>
             )}
+
+            <div className="space-y-1 min-w-0">
+              <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Date</label>
+              <input 
+                type="date" 
+                value={date} 
+                onChange={e => setDate(e.target.value)}
+                className="glass-input w-full text-sm appearance-none"
+              />
+            </div>
           </div>
 
           <div className="space-y-4 pt-2">
@@ -346,19 +348,31 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
               <motion.div 
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
-                className="space-y-1"
+                className="grid grid-cols-2 gap-4"
               >
-                <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Frequency</label>
-                <select 
-                  value={recurringFrequency} 
-                  onChange={e => setRecurringFrequency(e.target.value as any)}
-                  className="glass-input w-full text-sm"
-                >
-                  <option value="Daily">Daily</option>
-                  <option value="Weekly">Weekly</option>
-                  <option value="Monthly">Monthly</option>
-                  <option value="Yearly">Yearly</option>
-                </select>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">Frequency</label>
+                  <select 
+                    value={recurringFrequency} 
+                    onChange={e => setRecurringFrequency(e.target.value as any)}
+                    className="glass-input w-full text-sm"
+                  >
+                    <option value="Daily">Daily</option>
+                    <option value="Weekly">Weekly</option>
+                    <option value="Monthly">Monthly</option>
+                    <option value="Yearly">Yearly</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase text-neutral-400 ml-1">End Date (Optional)</label>
+                  <input 
+                    type="date" 
+                    value={recurringEndDate} 
+                    onChange={e => setRecurringEndDate(e.target.value)}
+                    min={date}
+                    className="glass-input w-full text-sm appearance-none"
+                  />
+                </div>
               </motion.div>
             )}
           </div>
@@ -373,6 +387,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
               date: new Date(date).toISOString(),
               isRecurring,
               recurringFrequency: isRecurring ? recurringFrequency : undefined,
+              recurringEndDate: isRecurring && recurringEndDate ? new Date(recurringEndDate).toISOString() : undefined,
               type,
             };
 
