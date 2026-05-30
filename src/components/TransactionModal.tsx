@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { X } from 'lucide-react';
+import { X, Calculator } from 'lucide-react';
 import * as dateFns from 'date-fns';
 import { cn, formatCurrency } from '@/src/lib/utils';
 import { Account, Transaction } from '@/src/types';
@@ -23,6 +23,7 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
 
   const [type, setType] = useState<Transaction['type']>(initialData?.type || 'Expense');
   const [amount, setAmount] = useState(initialData?.totalAmount?.toString() || initialData?.amount?.toString() || '');
+  const [showCalc, setShowCalc] = useState(false);
   const [description, setDescription] = useState(initialData?.description.replace(/ \(My Share\)$| \(Lent\)$| \(Lent to .*\)$/, '') || '');
   const [category, setCategory] = useState(() => {
     if (initialData?.originalCategory) return initialData.originalCategory;
@@ -40,8 +41,8 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
   // Calculator Logic
   const calculateResult = (input: string): number | null => {
     try {
-      // Remove any characters that aren't numbers, operators, or dots
-      const sanitized = input.replace(/[^0-9+\-*/.]/g, '');
+      // Remove any characters that aren't numbers, operators, dots, or parentheses
+      const sanitized = input.replace(/[^0-9+\-*/.()]/g, '');
       if (!sanitized || !/[0-9]/.test(sanitized)) return null;
       
       // Basic evaluation using Function constructor (safer than eval if sanitized)
@@ -117,24 +118,41 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
         )}
 
         <div className="space-y-4">
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <div className="flex justify-between items-center ml-1">
               <label className="text-[10px] font-bold uppercase text-neutral-400">Amount</label>
-              {calculatedAmount !== null && amount.match(/[+\-*/]/) && (
-                <motion.button
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  onClick={() => setAmount(calculatedAmount.toString())}
-                  className="text-[10px] font-bold uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md hover:bg-blue-100 transition-colors"
+              <div className="flex items-center gap-1.5">
+                {calculatedAmount !== null && amount.match(/[+\-*/]/) && (
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    onClick={() => {
+                      setAmount(calculatedAmount.toString());
+                    }}
+                    className="text-[10px] font-bold uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md hover:bg-blue-100 transition-colors"
+                  >
+                    Apply: {formatCurrency(calculatedAmount)}
+                  </motion.button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowCalc(prev => !prev)}
+                  className={cn(
+                    "text-[10px] font-bold uppercase px-2 py-0.5 rounded-lg border flex items-center gap-1 transition-all cursor-pointer",
+                    showCalc 
+                      ? "bg-blue-50 border-blue-200 text-blue-600 shadow-sm" 
+                      : "bg-neutral-50 border-neutral-200 text-neutral-500 hover:bg-neutral-100"
+                  )}
                 >
-                  Apply: {formatCurrency(calculatedAmount)}
-                </motion.button>
-              )}
+                  <Calculator size={10} />
+                  <span>{showCalc ? "Hide Keypad" : "Show Keypad"}</span>
+                </button>
+              </div>
             </div>
             <div className="relative">
               <input 
                 type="text" 
-                inputMode="decimal"
+                inputMode={showCalc ? "none" : "decimal"}
                 value={amount} 
                 onChange={e => setAmount(e.target.value)}
                 placeholder="0.00"
@@ -145,6 +163,69 @@ export default function TransactionModal({ accounts, onClose, onSave, categories
                 <span className="text-xs font-bold">₹</span>
               </div>
             </div>
+
+            {showCalc && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, height: 0 }}
+                animate={{ opacity: 1, scale: 1, height: 'auto' }}
+                exit={{ opacity: 0, scale: 0.95, height: 0 }}
+                className="overflow-hidden bg-neutral-50 border border-neutral-200/50 p-2.5 rounded-2xl"
+              >
+                <div className="grid grid-cols-4 gap-1.5 text-sm font-semibold select-none">
+                  {[
+                    { label: 'C', value: 'clear', className: 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-150/45 text-[13px] font-extrabold' },
+                    { label: '(', value: '(', className: 'bg-neutral-100 hover:bg-neutral-200 text-neutral-700' },
+                    { label: ')', value: ')', className: 'bg-neutral-100 hover:bg-neutral-200 text-neutral-700' },
+                    { label: '÷', value: '/', className: 'bg-blue-50 hover:bg-blue-100 text-blue-600 text-base font-extrabold' },
+                    
+                    { label: '7', value: '7', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '8', value: '8', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '9', value: '9', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '×', value: '*', className: 'bg-blue-50 hover:bg-blue-100 text-blue-600 text-[17px] font-extrabold' },
+                    
+                    { label: '4', value: '4', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '5', value: '5', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '6', value: '6', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '−', value: '-', className: 'bg-blue-50 hover:bg-blue-100 text-blue-600 text-base font-extrabold' },
+                    
+                    { label: '1', value: '1', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '2', value: '2', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '3', value: '3', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '+', value: '+', className: 'bg-blue-50 hover:bg-blue-100 text-blue-600 text-[17px] font-extrabold' },
+                    
+                    { label: '0', value: '0', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '.', value: '.', className: 'bg-white hover:bg-neutral-100 border border-neutral-200/40 text-neutral-800 font-bold' },
+                    { label: '⌫', value: 'backspace', className: 'bg-neutral-100 hover:bg-neutral-200 text-neutral-600 text-[13px]' },
+                    { label: '=', value: 'equal', className: 'bg-blue-600 hover:bg-blue-700 text-white font-extrabold' }
+                  ].map((btn, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        if (btn.value === 'clear') {
+                          setAmount('');
+                        } else if (btn.value === 'backspace') {
+                          setAmount(prev => prev.slice(0, -1));
+                        } else if (btn.value === 'equal') {
+                          const res = calculateResult(amount);
+                          if (res !== null) {
+                            setAmount(res.toString());
+                          }
+                        } else {
+                          setAmount(prev => prev + btn.value);
+                        }
+                      }}
+                      className={cn(
+                        "h-10 rounded-xl flex items-center justify-center transition-all cursor-pointer shadow-sm active:scale-95",
+                        btn.className
+                      )}
+                    >
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
           </div>
 
           <div className="space-y-1">
