@@ -4,7 +4,7 @@ import {
   Plus, Wallet, ArrowUpRight, ArrowDownLeft, 
   Settings as SettingsIcon, LayoutDashboard, ChevronRight, 
   ArrowRightLeft, Download, Upload, Trash2, Pencil, Check, X, Search, Filter,
-  ArrowDownWideNarrow, ArrowUpNarrowWide, Copy 
+  ArrowDownWideNarrow, ArrowUpNarrowWide, Copy, CalendarDays 
 } from 'lucide-react';
 import * as dateFns from 'date-fns';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -18,6 +18,7 @@ import PayBillModal from './components/PayBillModal';
 import CreditCardStatementModal from './components/CreditCardStatementModal';
 import ConfirmationModal from './components/ConfirmationModal';
 import ResetModal from './components/ResetModal';
+import FilterModal from './components/FilterModal';
 
 const CATEGORIES = [
   "Housing & Utilities", "Groceries", "Transportation", "Medical", 
@@ -37,8 +38,8 @@ export default function App() {
   const [selectedCreditCard, setSelectedCreditCard] = useState<Account | null>(null);
   const [selectedStatementCard, setSelectedStatementCard] = useState<Account | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterMonth, setFilterMonth] = useState(dateFns.format(new Date(), 'MMMM'));
-  const [filterYear, setFilterYear] = useState(dateFns.format(new Date(), 'yyyy'));
+  const [filterMonth, setFilterMonth] = useState('All');
+  const [filterYear, setFilterYear] = useState('All');
   const [filterCategory, setFilterCategory] = useState('All');
   const [filterAccount, setFilterAccount] = useState('All');
   const [sortBy, setSortBy] = useState<'date' | 'amount'>('date');
@@ -47,6 +48,7 @@ export default function App() {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [filterType, setFilterType] = useState<'All' | 'Income' | 'Expense' | 'Lent' | 'Recurring'>('All');
+  const [defaultTransactionAccountId, setDefaultTransactionAccountId] = useState<string | undefined>(undefined);
 
   // Recurring Logic
   useEffect(() => {
@@ -191,6 +193,7 @@ export default function App() {
   }, [accounts, totalAssets, transactions]);
 
   const baseFilteredTransactions = useMemo(() => {
+    const today = new Date();
     const filterFn = (t: Transaction, overrideDate?: string) => {
       const isRecurringView = filterType === 'Recurring';
       
@@ -205,6 +208,10 @@ export default function App() {
       
       const tDate = dateFns.parseISO(overrideDate || t.date);
       
+      // Don't show future transactions. Just show up to today.
+      const isFuture = dateFns.isAfter(dateFns.startOfDay(tDate), dateFns.endOfDay(today));
+      if (isFuture) return false;
+
       const matchesMonth = filterMonth === 'All' || dateFns.format(tDate, 'MMMM') === filterMonth;
       const matchesYear = filterYear === 'All' || dateFns.format(tDate, 'yyyy') === filterYear;
       const matchesCategory = filterCategory === 'All' || t.category === filterCategory;
@@ -217,78 +224,8 @@ export default function App() {
 
     const realFiltered = transactions.filter(t => filterFn(t));
 
-    // Dynamic projections for recurring transactions
-    const projections: Transaction[] = [];
-    const today = new Date();
-    const isRecurringView = filterType === 'Recurring';
-    
-    if (!isRecurringView) {
-      let rangeStart: Date;
-      let rangeEnd: Date;
-
-      if (filterYear === 'All') {
-        if (filterMonth === 'All') {
-          // Project for next 3 months to avoid cluttering but show immediate future
-          rangeStart = dateFns.startOfDay(today);
-          rangeEnd = dateFns.addMonths(rangeStart, 3);
-        } else {
-          // Specific month, use current year
-          const monthIndex = dateFns.getMonth(dateFns.parse(filterMonth, 'MMMM', new Date()));
-          rangeStart = dateFns.startOfMonth(new Date(today.getFullYear(), monthIndex));
-          rangeEnd = dateFns.endOfMonth(rangeStart);
-        }
-      } else {
-        const year = parseInt(filterYear);
-        if (filterMonth === 'All') {
-          rangeStart = dateFns.startOfYear(new Date(year, 0, 1));
-          rangeEnd = dateFns.endOfYear(rangeStart);
-        } else {
-          const monthIndex = dateFns.getMonth(dateFns.parse(filterMonth, 'MMMM', new Date()));
-          rangeStart = dateFns.startOfMonth(new Date(year, monthIndex));
-          rangeEnd = dateFns.endOfMonth(rangeStart);
-        }
-      }
-
-      // Only project if the filter period includes future dates
-      if (!dateFns.isBefore(rangeEnd, today)) {
-        transactions.forEach(t => {
-          if (t.isRecurring && t.recurringFrequency) {
-            let nextDate = dateFns.parseISO(t.date);
-            const endDate = t.recurringEndDate ? dateFns.parseISO(t.recurringEndDate) : null;
-
-            // Project instances for the filtered period
-            // limit to prevent infinite loops or excessive iterations (max 400 instances per transaction)
-            let safetyCounter = 0;
-            while (safetyCounter < 400 && (dateFns.isBefore(nextDate, rangeEnd) || dateFns.isSameDay(nextDate, rangeEnd))) {
-              // If the date is in the future AND in the filtered period
-              const isInFuture = dateFns.isAfter(nextDate, today);
-              const isInRange = (dateFns.isAfter(nextDate, rangeStart) || dateFns.isSameDay(nextDate, rangeStart)) &&
-                               (dateFns.isBefore(nextDate, rangeEnd) || dateFns.isSameDay(nextDate, rangeEnd));
-              
-              if (isInFuture && isInRange && filterFn(t, nextDate.toISOString())) {
-                projections.push({
-                  ...t,
-                  id: `projected-${t.id}-${nextDate.getTime()}`,
-                  date: nextDate.toISOString(),
-                  isProjected: true
-                });
-              }
-
-              // Advance nextDate
-              if (t.recurringFrequency === 'Daily') nextDate = dateFns.addDays(nextDate, 1);
-              else if (t.recurringFrequency === 'Weekly') nextDate = dateFns.addWeeks(nextDate, 1);
-              else if (t.recurringFrequency === 'Monthly') nextDate = dateFns.addMonths(nextDate, 1);
-              else nextDate = dateFns.addYears(nextDate, 1);
-
-              if (endDate && dateFns.isAfter(nextDate, endDate)) break;
-              safetyCounter++;
-            }
-          }
-        });
-      }
-    }
-
-    const all = [...realFiltered, ...projections];
+    // Do not show future projections; just show real transactions until today
+    const all = realFiltered;
 
     return all.sort((a, b) => {
       if (sortBy === 'date') {
@@ -563,7 +500,7 @@ export default function App() {
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-screen pb-60 px-4 pt-8 relative overflow-x-hidden">
+    <div className="max-w-md mx-auto min-h-screen pb-32 px-4 pt-8 relative overflow-x-hidden">
       {/* Header */}
       <header className="mb-8 flex justify-between items-start">
         <div className="space-y-2">
@@ -613,9 +550,10 @@ export default function App() {
           {activeTab === 'dashboard' && (
             <motion.div
               key="dashboard"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ type: "tween", ease: "easeInOut", duration: 0.15 }}
               className="space-y-6"
             >
               {/* Peace of Mind Card */}
@@ -651,45 +589,47 @@ export default function App() {
               )}
 
               {/* Cash Flow Summary */}
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase text-neutral-400 tracking-widest px-1">
-                  Showing {filterDescription}
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  <button 
-                    onClick={() => setFilterType(filterType === 'Income' ? 'All' : 'Income')}
-                    className={cn(
-                      "glass-card p-4 border-l-4 border-l-emerald-500 flex-1 min-w-[120px] text-left transition-all active:scale-95",
-                      filterType === 'Income' ? "ring-2 ring-emerald-500 ring-offset-2" : "opacity-70 grayscale-[0.3]"
-                    )}
-                  >
-                    <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Income</p>
-                    <p className="text-xl font-bold text-emerald-600">{formatCurrency(cashFlow.income)}</p>
-                  </button>
-                  <button 
-                    onClick={() => setFilterType(filterType === 'Expense' ? 'All' : 'Expense')}
-                    className={cn(
-                      "glass-card p-4 border-l-4 border-l-red-500 flex-1 min-w-[120px] text-left transition-all active:scale-95",
-                      filterType === 'Expense' ? "ring-2 ring-red-500 ring-offset-2" : "opacity-70 grayscale-[0.3]"
-                    )}
-                  >
-                    <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Expenses</p>
-                    <p className="text-xl font-bold text-red-500">{formatCurrency(cashFlow.expense)}</p>
-                  </button>
-                  {Math.abs(cashFlow.lent) > 0.01 && (
+              {(filterMonth !== 'All' || filterYear !== 'All' || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '' || filterType !== 'All') && (
+                <div className="space-y-2.5">
+                  <div className="px-1">
+                    <p className="text-[10px] font-bold uppercase text-neutral-400 tracking-widest">
+                      Showing {filterDescription}
+                    </p>
+                  </div>
+                  <div className="flex gap-2.5 xs:gap-3 overflow-hidden">
                     <button 
-                      onClick={() => setFilterType(filterType === 'Lent' ? 'All' : 'Lent')}
+                      onClick={() => setFilterType(filterType === 'Income' ? 'All' : 'Income')}
                       className={cn(
-                        "glass-card p-4 border-l-4 border-l-blue-500 flex-1 min-w-[120px] text-left transition-all active:scale-95",
-                        filterType === 'Lent' ? "ring-2 ring-blue-500 ring-offset-2" : "opacity-70 grayscale-[0.3]"
+                        "glass-card p-3 xs:p-4 border-l-[3px] xs:border-l-4 border-l-emerald-500 flex-1 min-w-[90px] sm:min-w-[120px] text-left transition-all active:scale-95 overflow-hidden",
+                        filterType === 'Income' ? "ring-2 ring-emerald-500 ring-offset-2" : "opacity-70 grayscale-[0.3]"
                       )}
                     >
-                      <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1">Lent</p>
-                      <p className="text-xl font-bold text-blue-500">{formatCurrency(cashFlow.lent)}</p>
+                      <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1 truncate">Income</p>
+                      <p 
+                        className="text-base xs:text-lg sm:text-xl font-bold text-emerald-600 truncate whitespace-nowrap"
+                        title={formatCurrency(cashFlow.income)}
+                      >
+                        {formatCurrency(cashFlow.income)}
+                      </p>
                     </button>
-                  )}
+                    <button 
+                      onClick={() => setFilterType(filterType === 'Expense' ? 'All' : 'Expense')}
+                      className={cn(
+                        "glass-card p-3 xs:p-4 border-l-[3px] xs:border-l-4 border-l-red-500 flex-1 min-w-[90px] sm:min-w-[120px] text-left transition-all active:scale-95 overflow-hidden",
+                        filterType === 'Expense' ? "ring-2 ring-red-500 ring-offset-2" : "opacity-70 grayscale-[0.3]"
+                      )}
+                    >
+                      <p className="text-[10px] font-bold uppercase text-neutral-400 mb-1 truncate">Expenses</p>
+                      <p 
+                        className="text-base xs:text-lg sm:text-xl font-bold text-red-500 truncate whitespace-nowrap"
+                        title={formatCurrency(cashFlow.expense)}
+                      >
+                        {formatCurrency(cashFlow.expense)}
+                      </p>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Activity Section */}
               <section className="space-y-6">
@@ -702,9 +642,39 @@ export default function App() {
                         "p-1.5 rounded-lg transition-colors",
                         showFilters ? "bg-blue-50 text-blue-600" : "text-neutral-400 hover:bg-neutral-50"
                       )}
+                      title="All filters"
                     >
                       <Filter size={16} />
                     </button>
+                    {(() => {
+                      const curMonth = dateFns.format(new Date(), 'MMMM');
+                      const curYear = dateFns.format(new Date(), 'yyyy');
+                      const isCurrentMonth = filterMonth === curMonth && filterYear === curYear;
+
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isCurrentMonth) {
+                              setFilterMonth('All');
+                              setFilterYear('All');
+                            } else {
+                              setFilterMonth(curMonth);
+                              setFilterYear(curYear);
+                            }
+                          }}
+                          className={cn(
+                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all whitespace-nowrap cursor-pointer",
+                            isCurrentMonth 
+                              ? "bg-blue-600 text-white shadow-xs hover:bg-blue-700" 
+                              : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                          )}
+                        >
+                          <CalendarDays size={12} />
+                          This Month
+                        </button>
+                      );
+                    })()}
                     <button
                       onClick={copyResults}
                       disabled={filteredTransactions.length === 0}
@@ -719,7 +689,7 @@ export default function App() {
                       {isCopied ? 'Copied!' : 'Copy'}
                     </button>
                   </div>
-                  {(filterMonth !== dateFns.format(new Date(), 'MMMM') || filterYear !== dateFns.format(new Date(), 'yyyy') || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '' || sortBy !== 'date' || sortOrder !== 'desc' || filterType !== 'All') && (
+                  {(filterMonth !== 'All' || filterYear !== 'All' || filterCategory !== 'All' || filterAccount !== 'All' || searchQuery !== '' || sortBy !== 'date' || sortOrder !== 'desc' || filterType !== 'All') && (
                     <button 
                       onClick={() => {
                         setSearchQuery('');
@@ -738,141 +708,33 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Filters */}
-                <AnimatePresence>
-                  {showFilters && (
-                    <motion.div 
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ 
-                        height: { duration: 0.3, ease: "easeInOut" },
-                        opacity: { duration: 0.2 }
-                      }}
-                      className="overflow-hidden"
-                    >
-                      <div className="pt-2 pb-4 space-y-3">
-                        <div className="flex flex-wrap gap-2">
-                          {(['All', 'Income', 'Expense', 'Lent', 'Recurring'] as const).map((type) => (
-                            <button
-                              key={type}
-                              onClick={() => setFilterType(type)}
-                              className={cn(
-                                "px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all",
-                                filterType === type 
-                                  ? "bg-blue-500 text-white shadow-lg shadow-blue-200" 
-                                  : "bg-white/50 text-neutral-500 hover:bg-white"
-                              )}
-                            >
-                              {type}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="relative group">
-                          <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none text-neutral-400 group-focus-within:text-blue-500 transition-colors z-10">
-                            <Search size={18} />
-                          </div>
-                          <input
-                            type="text"
-                            placeholder="Search transactions..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="glass-input w-full py-3.5 text-sm transition-none"
-                            style={{ paddingLeft: '3rem' }}
-                          />
-                        </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <select 
-                          value={filterMonth} 
-                          onChange={(e) => setFilterMonth(e.target.value)}
-                          className="glass-input text-[10px] font-bold uppercase py-2 px-2"
-                        >
-                          <option value="All">Month</option>
-                          {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => (
-                            <option key={m} value={m}>{m}</option>
-                          ))}
-                        </select>
-
-                        <select 
-                          value={filterYear} 
-                          onChange={(e) => setFilterYear(e.target.value)}
-                          className="glass-input text-[10px] font-bold uppercase py-2 px-2"
-                        >
-                          <option value="All">Year</option>
-                          {Array.from({ length: 8 }, (_, i) => new Date().getFullYear() + 2 - i).map(y => (
-                            <option key={y} value={y.toString()}>{y}</option>
-                          ))}
-                        </select>
-
-                        <select 
-                          value={filterCategory} 
-                          onChange={(e) => setFilterCategory(e.target.value)}
-                          className="glass-input text-[10px] font-bold uppercase py-2 px-2"
-                        >
-                          <option value="All">Category</option>
-                          {CATEGORIES.map(cat => (
-                            <option key={cat} value={cat}>{cat}</option>
-                          ))}
-                        </select>
-
-                        <select 
-                          value={filterAccount} 
-                          onChange={(e) => setFilterAccount(e.target.value)}
-                          className="glass-input text-[10px] font-bold uppercase py-2 px-2"
-                        >
-                          <option value="All">Account</option>
-                          {accounts.map(acc => (
-                            <option key={acc.id} value={acc.id}>{acc.name}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-1">
-                        <span className="text-[10px] font-bold uppercase text-neutral-400">Sort by:</span>
-                        <div className="flex gap-1">
-                          <button 
-                            onClick={() => setSortBy('date')}
-                            className={cn(
-                              "text-[10px] font-bold uppercase px-2 py-1 rounded-md transition-all",
-                              sortBy === 'date' ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
-                            )}
-                          >
-                            Date
-                          </button>
-                          <button 
-                            onClick={() => setSortBy('amount')}
-                            className={cn(
-                              "text-[10px] font-bold uppercase px-2 py-1 rounded-md transition-all",
-                              sortBy === 'amount' ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
-                            )}
-                          >
-                            Amount
-                          </button>
-                        </div>
-                        <div className="ml-auto">
-                          <button 
-                            onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                            className="text-[10px] font-bold uppercase px-2 py-1 rounded-md bg-neutral-100 text-neutral-500 flex items-center gap-1.5 transition-all active:scale-95"
-                          >
-                            {sortOrder === 'desc' ? (
-                              <>
-                                <ArrowDownWideNarrow size={12} />
-                                {sortBy === 'date' ? 'Newest' : 'Highest'}
-                              </>
-                            ) : (
-                              <>
-                                <ArrowUpNarrowWide size={12} />
-                                {sortBy === 'date' ? 'Oldest' : 'Lowest'}
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                  )}
-                </AnimatePresence>
+                {/* Filters Modal */}
+                <FilterModal
+                  isOpen={showFilters}
+                  onClose={() => setShowFilters(false)}
+                  accounts={accounts}
+                  categories={CATEGORIES}
+                  currentFilters={{
+                    searchQuery,
+                    filterMonth,
+                    filterYear,
+                    filterCategory,
+                    filterAccount,
+                    filterType,
+                    sortBy,
+                    sortOrder,
+                  }}
+                  onApply={(updatedFilters) => {
+                    setSearchQuery(updatedFilters.searchQuery);
+                    setFilterMonth(updatedFilters.filterMonth);
+                    setFilterYear(updatedFilters.filterYear);
+                    setFilterCategory(updatedFilters.filterCategory);
+                    setFilterAccount(updatedFilters.filterAccount);
+                    setFilterType(updatedFilters.filterType);
+                    setSortBy(updatedFilters.sortBy);
+                    setSortOrder(updatedFilters.sortOrder);
+                  }}
+                />
                 
                 {/* Transaction List */}
                 <motion.div 
@@ -887,10 +749,10 @@ export default function App() {
                         <motion.div 
                           layout
                           key={t.id} 
-                          initial={{ opacity: 0, scale: 0.95 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          transition={{ duration: 0.2 }}
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -5 }}
+                          transition={{ type: "tween", ease: "easeInOut", duration: 0.15 }}
                           className={cn(
                             "glass-card p-3 flex items-center justify-between group border-l-4 border-l-blue-400 gap-3",
                             t.isProjected && "opacity-50 border-dashed bg-white/30"
@@ -923,7 +785,17 @@ export default function App() {
                                 </span>
                               )}
                             </p>
-                            <p className="text-[10px] text-neutral-400 truncate mt-0.5">{account?.name} • {dateFns.format(dateFns.parseISO(t.date), 'MMM d')}</p>
+                            <p className="text-[10px] text-neutral-400 truncate mt-0.5 flex items-center flex-wrap gap-1">
+                              <span>{account?.name} • {dateFns.format(dateFns.parseISO(t.date), 'MMM d')}</span>
+                              {t.totalAmount && t.totalAmount > 0 && (
+                                <>
+                                  <span className="text-neutral-300">•</span>
+                                  <span className="text-neutral-400">
+                                    Bill: {formatCurrency(t.totalAmount)}
+                                  </span>
+                                </>
+                              )}
+                            </p>
                           </div>
                         </div>
                         <div className="flex flex-col items-end flex-shrink-0">
@@ -978,9 +850,10 @@ export default function App() {
           {activeTab === 'accounts' && (
             <motion.div
               key="accounts"
-              initial={{ opacity: 0, x: 20 }}
+              initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ type: "tween", ease: "easeInOut", duration: 0.15 }}
               className="space-y-6"
             >
               <div className="flex justify-between items-center">
@@ -996,27 +869,22 @@ export default function App() {
                 {accounts.map(acc => (
                   <div 
                     key={acc.id} 
-                    className={cn(
-                      "glass-card p-4 space-y-3 transition-all",
-                      acc.type === 'Credit Card' ? "cursor-pointer hover:border-blue-200 active:scale-[0.99]" : ""
-                    )}
+                    className="glass-card p-4 space-y-3 transition-all cursor-pointer hover:border-blue-200 active:scale-[0.99]"
                     onClick={() => {
-                      if (acc.type === 'Credit Card') {
-                        setSelectedStatementCard(acc);
-                      }
+                      setSelectedStatementCard(acc);
                     }}
                   >
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-3">
-                        <div className={cn("w-2.5 h-2.5 rounded-full", acc.color)} />
-                        <div>
-                          <h3 className="font-bold text-sm">{acc.name}</h3>
-                          <p className="text-[10px] text-neutral-400 uppercase font-bold tracking-widest">{acc.type}</p>
+                    <div className="flex justify-between items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", acc.color)} />
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-sm truncate">{acc.name}</h3>
+                          <p className="text-[10px] text-neutral-400 uppercase font-bold tracking-widest truncate">{acc.type}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-4 flex-shrink-0">
                         <div className="text-right">
-                          <p className={cn("text-base font-bold", acc.balance < 0 ? "text-red-500" : "text-neutral-900")}>
+                          <p className={cn("text-base font-bold whitespace-nowrap", acc.balance < 0 ? "text-red-500" : "text-neutral-900")}>
                             {formatCurrency(acc.balance)}
                           </p>
                         </div>
@@ -1043,24 +911,34 @@ export default function App() {
                       </div>
                     </div>
 
-                    {acc.type === 'Credit Card' && (
-                      <div className="pt-2 border-t border-neutral-100 flex justify-between items-center">
-                        <div className="text-[10px] text-neutral-500 flex gap-3">
-                          <p><span className="font-bold uppercase">Bill:</span> Day {acc.billingDate}</p>
-                          <p><span className="font-bold uppercase">Due:</span> Day {acc.dueDate}</p>
+                    {acc.type === 'Credit Card' && (() => {
+                      const pendingDues = calculatePendingDues(acc, transactions);
+                      const isPaid = pendingDues === 0;
+                      return (
+                        <div className="pt-2 border-t border-neutral-100 flex justify-between items-center">
+                          <div className="text-[10px] text-neutral-500 flex gap-3">
+                            <p><span className="font-bold uppercase">Bill:</span> Day {acc.billingDate}</p>
+                            <p><span className="font-bold uppercase">Due:</span> Day {acc.dueDate}</p>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCreditCard(acc);
+                              setIsPayBillModalOpen(true);
+                            }}
+                            className={cn(
+                              "text-[10px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer",
+                              isPaid 
+                                ? "text-emerald-600 bg-emerald-50/70 border border-emerald-100/50 hover:bg-emerald-100/60" 
+                                : "text-blue-600 bg-blue-50/80 hover:bg-blue-100"
+                            )}
+                          >
+                            {isPaid ? "Paid ✓" : "Pay Bill"}
+                          </button>
                         </div>
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedCreditCard(acc);
-                            setIsPayBillModalOpen(true);
-                          }}
-                          className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg hover:bg-blue-100 transition-colors"
-                        >
-                          PAY BILL
-                        </button>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
@@ -1070,9 +948,10 @@ export default function App() {
           {activeTab === 'settings' && (
             <motion.div
               key="settings"
-              initial={{ opacity: 0, x: -20 }}
+              initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
+              exit={{ opacity: 0, x: 10 }}
+              transition={{ type: "tween", ease: "easeInOut", duration: 0.15 }}
               className="space-y-8"
             >
               <h2 className="text-2xl font-bold">Settings</h2>
@@ -1117,49 +996,40 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* Floating Add Button - Home Screen Only */}
-      <AnimatePresence>
-        {activeTab === 'dashboard' && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-md pointer-events-none px-6 z-[60]"
-          >
-            <div className="flex justify-end">
-              <button 
-                onClick={() => setIsExpenseModalOpen(true)}
-                className="w-14 h-14 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-200 flex items-center justify-center active:scale-95 transition-transform pointer-events-auto"
-              >
-                <Plus size={28} />
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Navigation Bar */}
-      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-md glass-card p-2 flex items-center justify-between z-50">
+      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-x border-neutral-100/80 rounded-t-[24px] px-6 py-2 flex items-center justify-between z-50 shadow-[0_-8px_30px_rgba(0,0,0,0.05)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button 
           onClick={() => setActiveTab('dashboard')}
           className={cn(
-            "flex-1 flex flex-col items-center gap-1 py-2 rounded-xl transition-all",
-            activeTab === 'dashboard' ? "bg-neutral-900 text-white" : "text-neutral-400"
+            "flex-grow flex-1 flex flex-col items-center gap-1 py-1.5 rounded-xl transition-all cursor-pointer",
+            activeTab === 'dashboard' ? "text-blue-600 font-semibold" : "text-neutral-400 hover:text-neutral-600"
           )}
         >
           <LayoutDashboard size={20} />
-          <span className="text-[10px] font-bold uppercase">Home</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider">Home</span>
         </button>
+        
+        {/* Central Plus Transact Button */}
+        <div className="flex-grow flex-1 flex justify-center -mt-6">
+          <button 
+            type="button"
+            onClick={() => setIsExpenseModalOpen(true)}
+            className="w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center shadow-lg shadow-blue-100 active:scale-95 transition-transform cursor-pointer"
+            title="Add Transaction"
+          >
+            <Plus size={24} />
+          </button>
+        </div>
         
         <button 
           onClick={() => setActiveTab('accounts')}
           className={cn(
-            "flex-1 flex flex-col items-center gap-1 py-2 rounded-xl transition-all",
-            activeTab === 'accounts' ? "bg-neutral-900 text-white" : "text-neutral-400"
+            "flex-grow flex-1 flex flex-col items-center gap-1 py-1.5 rounded-xl transition-all cursor-pointer",
+            activeTab === 'accounts' ? "text-blue-600 font-semibold" : "text-neutral-400 hover:text-neutral-600"
           )}
         >
           <Wallet size={20} />
-          <span className="text-[10px] font-bold uppercase">Accounts</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider">Accounts</span>
         </button>
       </nav>
 
@@ -1169,13 +1039,16 @@ export default function App() {
           <TransactionModal 
             accounts={accounts} 
             initialData={editingTransaction}
+            defaultAccountId={defaultTransactionAccountId}
             onClose={() => {
               setIsExpenseModalOpen(false);
               setEditingTransaction(null);
+              setDefaultTransactionAccountId(undefined);
             }} 
             onSave={(txs) => {
               if (editingTransaction) updateTransaction(editingTransaction.id, txs);
               else addTransaction(txs);
+              setDefaultTransactionAccountId(undefined);
             }} 
             categories={CATEGORIES}
           />
@@ -1197,6 +1070,7 @@ export default function App() {
           <PayBillModal 
             cc={selectedCreditCard}
             accounts={accounts.filter(a => a.type !== 'Credit Card')}
+            transactions={transactions}
             onClose={() => setIsPayBillModalOpen(false)}
             onSave={payBill}
             defaultAmount={calculatePendingDues(selectedCreditCard, transactions)}
@@ -1207,6 +1081,19 @@ export default function App() {
             cc={selectedStatementCard}
             transactions={transactions}
             onClose={() => setSelectedStatementCard(null)}
+            onEditTransaction={(t) => {
+              if (t.groupId) {
+                const master = transactions.find(tx => tx.groupId === t.groupId && tx.description.includes('(My Share)'));
+                setEditingTransaction(master || t);
+              } else {
+                setEditingTransaction(t);
+              }
+            }}
+            onDeleteTransaction={deleteTransaction}
+            onAddTransaction={(accId) => {
+              setDefaultTransactionAccountId(accId);
+              setIsExpenseModalOpen(true);
+            }}
           />
         )}
         {isResetModalOpen && (

@@ -21,12 +21,14 @@ export default function AccountModal({ onClose, onSave, initialData }: AccountMo
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
       exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
       className="fixed inset-0 bg-neutral-900/40 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-4"
     >
       <motion.div 
-        initial={{ y: 100 }} 
-        animate={{ y: 0 }} 
-        exit={{ y: 100 }}
+        initial={{ y: 20, opacity: 0 }} 
+        animate={{ y: 0, opacity: 1 }} 
+        exit={{ y: 20, opacity: 0 }}
+        transition={{ type: "tween", ease: "easeOut", duration: 0.2 }}
         className="glass-card w-full max-w-md p-6 space-y-6"
       >
         <div className="flex justify-between items-center">

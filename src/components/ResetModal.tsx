@@ -39,12 +39,14 @@ export default function ResetModal({ onClose, onReset }: ResetModalProps) {
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
       exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
       className="fixed inset-0 bg-neutral-900/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4"
     >
       <motion.div 
-        initial={{ scale: 0.9, opacity: 0 }} 
+        initial={{ scale: 0.97, opacity: 0 }} 
         animate={{ scale: 1, opacity: 1 }} 
-        exit={{ scale: 0.9, opacity: 0 }}
+        exit={{ scale: 0.97, opacity: 0 }}
+        transition={{ type: "tween", ease: "easeOut", duration: 0.15 }}
         className="glass-card w-full max-w-md p-6 space-y-6"
       >
         <div className="flex justify-between items-start">
