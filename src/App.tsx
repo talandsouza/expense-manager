@@ -500,52 +500,51 @@ export default function App() {
   };
 
   return (
-    <div className="max-w-md mx-auto min-h-screen pb-32 px-4 pt-8 relative overflow-x-hidden">
-      {/* Header */}
-      <header className="mb-8 flex justify-between items-start">
-        <div className="space-y-2">
-          <div className="flex items-center gap-1 bg-neutral-100 p-0.5 rounded-full w-fit">
+    <div className="max-w-md mx-auto h-[100dvh] flex flex-col relative overflow-hidden bg-transparent">
+      {/* Main Content Scrollable Container */}
+      <main className="flex-1 overflow-y-auto no-scrollbar px-4 pt-8 pb-32">
+        {/* Header */}
+        <header className="mb-8 flex justify-between items-start">
+          <div className="space-y-2">
+            <div className="flex items-center gap-1 bg-neutral-100 p-0.5 rounded-full w-fit">
+              <button 
+                onClick={() => setBalanceDisplayMode('Net')}
+                className={cn(
+                  "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
+                  balanceDisplayMode === 'Net' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
+                )}
+              >
+                Net
+              </button>
+              <button 
+                onClick={() => setBalanceDisplayMode('Gross')}
+                className={cn(
+                  "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
+                  balanceDisplayMode === 'Gross' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
+                )}
+              >
+                Gross
+              </button>
+            </div>
+            <h1 className="text-4xl font-bold tracking-tight">
+              {formatCurrency(balanceDisplayMode === 'Net' ? netWorth : totalAssets)}
+            </h1>
+            <p className="text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
+              {balanceDisplayMode === 'Net' ? 'Available Funds' : 'Total Assets'}
+            </p>
+          </div>
+          <div className="flex gap-2">
             <button 
-              onClick={() => setBalanceDisplayMode('Net')}
+              onClick={() => setActiveTab('settings')}
               className={cn(
-                "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
-                balanceDisplayMode === 'Net' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
+                "p-2 rounded-full transition-all",
+                activeTab === 'settings' ? "bg-neutral-900 text-white" : "bg-white/50 text-neutral-600"
               )}
             >
-              Net
-            </button>
-            <button 
-              onClick={() => setBalanceDisplayMode('Gross')}
-              className={cn(
-                "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
-                balanceDisplayMode === 'Gross' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
-              )}
-            >
-              Gross
+              <SettingsIcon size={20} />
             </button>
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">
-            {formatCurrency(balanceDisplayMode === 'Net' ? netWorth : totalAssets)}
-          </h1>
-          <p className="text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
-            {balanceDisplayMode === 'Net' ? 'Available Funds' : 'Total Assets'}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button 
-            onClick={() => setActiveTab('settings')}
-            className={cn(
-              "p-2 rounded-full transition-all",
-              activeTab === 'settings' ? "bg-neutral-900 text-white" : "bg-white/50 text-neutral-600"
-            )}
-          >
-            <SettingsIcon size={20} />
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main>
+        </header>
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <motion.div
@@ -664,10 +663,10 @@ export default function App() {
                             }
                           }}
                           className={cn(
-                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all whitespace-nowrap cursor-pointer",
+                            "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all whitespace-nowrap cursor-pointer border",
                             isCurrentMonth 
-                              ? "bg-blue-600 text-white shadow-xs hover:bg-blue-700" 
-                              : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                              ? "bg-blue-600 border-blue-600 text-white shadow-sm hover:bg-blue-700" 
+                              : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 shadow-xs"
                           )}
                         >
                           <CalendarDays size={12} />

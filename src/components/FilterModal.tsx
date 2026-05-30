@@ -186,8 +186,8 @@ export default function FilterModal({
                 className={cn(
                   "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase transition-all cursor-pointer flex items-center gap-1.5",
                   filterMonth === getCurrentMonthName() && filterYear === getCurrentYearString()
-                    ? "bg-blue-650 text-white shadow-xs"
-                    : "bg-neutral-55 border border-neutral-205/15 hover:bg-neutral-100 text-neutral-600"
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : "bg-neutral-50 border border-neutral-200 hover:bg-neutral-100 text-neutral-600"
                 )}
               >
                 <CalendarDays size={11} />
@@ -202,8 +202,8 @@ export default function FilterModal({
                 className={cn(
                   "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase transition-all cursor-pointer flex items-center gap-1.5",
                   filterMonth === getPrevMonthName() && filterYear === getPrevMonthYearString()
-                    ? "bg-blue-650 text-white shadow-xs"
-                    : "bg-neutral-55 border border-neutral-205/15 hover:bg-neutral-100 text-neutral-600"
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : "bg-neutral-50 border border-neutral-200 hover:bg-neutral-100 text-neutral-600"
                 )}
               >
                 <CalendarDays size={11} />
@@ -218,8 +218,8 @@ export default function FilterModal({
                 className={cn(
                   "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase transition-all cursor-pointer",
                   filterMonth === 'All' && filterYear === 'All'
-                    ? "bg-blue-650 text-white shadow-xs"
-                    : "bg-neutral-55 border border-neutral-205/15 hover:bg-neutral-100 text-neutral-600"
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : "bg-neutral-50 border border-neutral-200 hover:bg-neutral-100 text-neutral-600"
                 )}
               >
                 All Time
