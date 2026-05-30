@@ -4,7 +4,7 @@ import {
   Plus, Wallet, ArrowUpRight, ArrowDownLeft, 
   Settings as SettingsIcon, LayoutDashboard, ChevronRight, 
   ArrowRightLeft, Download, Upload, Trash2, Pencil, Check, X, Search, Filter,
-  ArrowDownWideNarrow, ArrowUpNarrowWide, Copy, CalendarDays 
+  ArrowDownWideNarrow, ArrowUpNarrowWide, Copy, CalendarDays, ArrowLeft, ReceiptText, History
 } from 'lucide-react';
 import * as dateFns from 'date-fns';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -15,7 +15,6 @@ import { Account, Transaction } from './types';
 import TransactionModal from './components/TransactionModal';
 import AccountModal from './components/AccountModal';
 import PayBillModal from './components/PayBillModal';
-import CreditCardStatementModal from './components/CreditCardStatementModal';
 import ConfirmationModal from './components/ConfirmationModal';
 import ResetModal from './components/ResetModal';
 import FilterModal from './components/FilterModal';
@@ -49,6 +48,106 @@ export default function App() {
   const [showFilters, setShowFilters] = useState(false);
   const [filterType, setFilterType] = useState<'All' | 'Income' | 'Expense' | 'Lent' | 'Recurring'>('All');
   const [defaultTransactionAccountId, setDefaultTransactionAccountId] = useState<string | undefined>(undefined);
+  const [nonCcFilter, setNonCcFilter] = useState<'60days' | 'currentMonth' | 'previousMonth'>('60days');
+
+  // For General Accounts: compute log and totals based on selected filter
+  const nonCcTransactions = useMemo(() => {
+    if (!selectedStatementCard || selectedStatementCard.type === 'Credit Card') return [];
+    
+    const today = new Date();
+    const sixtyDaysAgo = dateFns.subDays(today, 60);
+    const startOfCurMonth = dateFns.startOfMonth(today);
+    const endOfCurMonth = dateFns.endOfMonth(today);
+    
+    const prevMonthDate = dateFns.subMonths(today, 1);
+    const startOfPrevMonth = dateFns.startOfMonth(prevMonthDate);
+    const endOfPrevMonth = dateFns.endOfMonth(prevMonthDate);
+    
+    return transactions
+      .filter(t => {
+        if (t.accountId !== selectedStatementCard.id && t.toAccountId !== selectedStatementCard.id) return false;
+        const tDate = dateFns.parseISO(t.date);
+        
+        if (nonCcFilter === 'currentMonth') {
+          return !dateFns.isBefore(tDate, startOfCurMonth) && !dateFns.isAfter(tDate, endOfCurMonth) && !dateFns.isAfter(tDate, dateFns.endOfDay(today));
+        } else if (nonCcFilter === 'previousMonth') {
+          return !dateFns.isBefore(tDate, startOfPrevMonth) && !dateFns.isAfter(tDate, endOfPrevMonth);
+        } else {
+          // Last 60 Days: limit to >= sixtyDaysAgo AND <= today
+          return !dateFns.isBefore(tDate, dateFns.startOfDay(sixtyDaysAgo)) && !dateFns.isAfter(tDate, dateFns.endOfDay(today));
+        }
+      })
+      .sort((a, b) => dateFns.compareDesc(dateFns.parseISO(a.date), dateFns.parseISO(b.date)));
+  }, [selectedStatementCard, transactions, nonCcFilter]);
+
+  const nonCcStats = useMemo(() => {
+    if (!selectedStatementCard || selectedStatementCard.type === 'Credit Card') return null;
+    
+    let inflow = 0;
+    let outflow = 0;
+    
+    nonCcTransactions.forEach(t => {
+      const isIncoming = t.type === 'Income' || (t.type === 'Transfer' && t.toAccountId === selectedStatementCard.id);
+      if (isIncoming) {
+        inflow += t.amount;
+      } else {
+        outflow += t.amount;
+      }
+    });
+    
+    return { inflow, outflow };
+  }, [selectedStatementCard, nonCcTransactions]);
+
+  const [ccActiveTab, setCcActiveTab] = useState<'current' | 'previous'>('current');
+
+  // For Credit Cards: compute statement cycles
+  const ccStatements = useMemo(() => {
+    if (!selectedStatementCard || selectedStatementCard.type !== 'Credit Card' || !selectedStatementCard.billingDate) return null;
+
+    const today = new Date();
+    let currentBillingDate = new Date(today.getFullYear(), today.getMonth(), selectedStatementCard.billingDate);
+    
+    // If today is before the billing date, the "current" cycle started last month
+    if (dateFns.isBefore(today, dateFns.startOfDay(currentBillingDate))) {
+      currentBillingDate = dateFns.addMonths(currentBillingDate, -1);
+    }
+
+    const previousBillingDate = dateFns.addMonths(currentBillingDate, -1);
+
+    const filterTransactions = (start: Date, end: Date) => {
+      return transactions.filter(t => {
+        if (t.accountId !== selectedStatementCard.id && t.toAccountId !== selectedStatementCard.id) return false;
+        const tDate = dateFns.parseISO(t.date);
+        return dateFns.isAfter(tDate, dateFns.endOfDay(start)) && !dateFns.isAfter(tDate, dateFns.endOfDay(end));
+      }).sort((a, b) => dateFns.compareDesc(dateFns.parseISO(a.date), dateFns.parseISO(b.date)));
+    };
+
+    const currentTxs = filterTransactions(currentBillingDate, today);
+    const previousTxs = filterTransactions(previousBillingDate, currentBillingDate);
+
+    const calculateExpenses = (txs: Transaction[]) => {
+      return txs.reduce((sum, t) => {
+        if (t.type === 'Expense' && t.accountId === selectedStatementCard.id) return sum + t.amount;
+        if (t.type === 'Transfer' && t.accountId === selectedStatementCard.id) return sum + t.amount; // Transfers out are like expenses for the card
+        return sum;
+      }, 0);
+    };
+
+    return {
+      current: {
+        transactions: currentTxs,
+        total: calculateExpenses(currentTxs),
+        period: `${dateFns.format(dateFns.addDays(currentBillingDate, 1), 'MMM dd')} - Today`,
+        billingDate: currentBillingDate
+      },
+      previous: {
+        transactions: previousTxs,
+        total: calculateExpenses(previousTxs),
+        period: `${dateFns.format(dateFns.addDays(previousBillingDate, 1), 'MMM dd')} - ${dateFns.format(currentBillingDate, 'MMM dd')}`,
+        billingDate: previousBillingDate
+      }
+    };
+  }, [selectedStatementCard, transactions]);
 
   // Recurring Logic
   useEffect(() => {
@@ -504,47 +603,49 @@ export default function App() {
       {/* Main Content Scrollable Container */}
       <main className="flex-1 overflow-y-auto no-scrollbar px-4 pt-8 pb-32">
         {/* Header */}
-        <header className="mb-8 flex justify-between items-start">
-          <div className="space-y-2">
-            <div className="flex items-center gap-1 bg-neutral-100 p-0.5 rounded-full w-fit">
+        {!selectedStatementCard && (
+          <header className="mb-8 flex justify-between items-start">
+            <div className="space-y-2">
+              <div className="flex items-center gap-1 bg-neutral-100 p-0.5 rounded-full w-fit">
+                <button 
+                  onClick={() => setBalanceDisplayMode('Net')}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
+                    balanceDisplayMode === 'Net' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
+                  )}
+                >
+                  Net
+                </button>
+                <button 
+                  onClick={() => setBalanceDisplayMode('Gross')}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
+                    balanceDisplayMode === 'Gross' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
+                  )}
+                >
+                  Gross
+                </button>
+              </div>
+              <h1 className="text-4xl font-bold tracking-tight">
+                {formatCurrency(balanceDisplayMode === 'Net' ? netWorth : totalAssets)}
+              </h1>
+              <p className="text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
+                {balanceDisplayMode === 'Net' ? 'Available Funds' : 'Total Assets'}
+              </p>
+            </div>
+            <div className="flex gap-2">
               <button 
-                onClick={() => setBalanceDisplayMode('Net')}
+                onClick={() => setActiveTab('settings')}
                 className={cn(
-                  "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
-                  balanceDisplayMode === 'Net' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
+                  "p-2 rounded-full transition-all",
+                  activeTab === 'settings' ? "bg-neutral-900 text-white" : "bg-white/50 text-neutral-600"
                 )}
               >
-                Net
-              </button>
-              <button 
-                onClick={() => setBalanceDisplayMode('Gross')}
-                className={cn(
-                  "px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all",
-                  balanceDisplayMode === 'Gross' ? "bg-white text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
-                )}
-              >
-                Gross
+                <SettingsIcon size={20} />
               </button>
             </div>
-            <h1 className="text-4xl font-bold tracking-tight">
-              {formatCurrency(balanceDisplayMode === 'Net' ? netWorth : totalAssets)}
-            </h1>
-            <p className="text-neutral-500 text-[10px] font-bold uppercase tracking-wider">
-              {balanceDisplayMode === 'Net' ? 'Available Funds' : 'Total Assets'}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => setActiveTab('settings')}
-              className={cn(
-                "p-2 rounded-full transition-all",
-                activeTab === 'settings' ? "bg-neutral-900 text-white" : "bg-white/50 text-neutral-600"
-              )}
-            >
-              <SettingsIcon size={20} />
-            </button>
-          </div>
-        </header>
+          </header>
+        )}
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <motion.div
@@ -847,101 +948,441 @@ export default function App() {
           )}
 
           {activeTab === 'accounts' && (
-            <motion.div
-              key="accounts"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
-              transition={{ type: "tween", ease: "easeInOut", duration: 0.15 }}
-              className="space-y-6"
-            >
-              <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold">Your Accounts</h2>
-                <div className="flex gap-2">
-                  <button onClick={() => setIsAccountModalOpen(true)} className="glass-button flex items-center gap-2 text-sm">
-                    <Plus size={16} /> Add
-                  </button>
-                </div>
-              </div>
-              
-              <div className="grid gap-3">
-                {accounts.map(acc => (
-                  <div 
-                    key={acc.id} 
-                    className="glass-card p-4 space-y-3 transition-all cursor-pointer hover:border-blue-200 active:scale-[0.99]"
-                    onClick={() => {
-                      setSelectedStatementCard(acc);
-                    }}
-                  >
-                    <div className="flex justify-between items-center gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", acc.color)} />
-                        <div className="min-w-0">
-                          <h3 className="font-bold text-sm truncate">{acc.name}</h3>
-                          <p className="text-[10px] text-neutral-400 uppercase font-bold tracking-widest truncate">{acc.type}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 flex-shrink-0">
-                        <div className="text-right">
-                          <p className={cn("text-base font-bold whitespace-nowrap", acc.balance < 0 ? "text-red-500" : "text-neutral-900")}>
-                            {formatCurrency(acc.balance)}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingAccount(acc);
-                            }} 
-                            className="text-neutral-300 hover:text-blue-500 p-1"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteAccount(acc.id);
-                            }} 
-                            className="text-neutral-300 hover:text-red-400 p-1"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
+            <AnimatePresence mode="wait">
+              {selectedStatementCard ? (
+                <motion.div
+                  key="account-details"
+                  initial={{ opacity: 0, x: 15 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -15 }}
+                  transition={{ type: "tween", ease: "easeInOut", duration: 0.15 }}
+                  className="space-y-6"
+                >
+                  {/* Back button and account details */}
+                  <div className="flex items-center gap-3">
+                    <button 
+                      type="button"
+                      onClick={() => setSelectedStatementCard(null)}
+                      className="p-2 -ml-2 rounded-full hover:bg-neutral-150 transition-colors cursor-pointer"
+                      title="Back to Accounts"
+                    >
+                      <ArrowLeft size={20} className="text-neutral-600" />
+                    </button>
+                    <div>
+                      <h2 className="text-2xl font-bold flex items-center gap-2">
+                        <span className={cn("w-3 h-3 rounded-full flex-shrink-0", selectedStatementCard.color)} />
+                        {selectedStatementCard.name}
+                      </h2>
+                      <p className="text-[10px] text-neutral-400 font-extrabold uppercase tracking-widest leading-none mt-1">
+                        {selectedStatementCard.type === 'Credit Card' ? 'Credit Card Statement' : `${selectedStatementCard.type} Account Log`}
+                      </p>
                     </div>
+                  </div>
 
-                    {acc.type === 'Credit Card' && (() => {
-                      const pendingDues = calculatePendingDues(acc, transactions);
-                      const isPaid = pendingDues === 0;
+                  {/* Period selection / Tabs */}
+                  {selectedStatementCard.type === 'Credit Card' ? (
+                    <div className="flex p-2 bg-neutral-50 rounded-2xl border border-neutral-200/50 gap-1 overflow-x-auto">
+                      <button 
+                        type="button"
+                        onClick={() => setCcActiveTab('current')}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-bold text-[11px] xs:text-xs transition-colors cursor-pointer whitespace-nowrap",
+                          ccActiveTab === 'current' ? "bg-white shadow-xs text-blue-600 font-extrabold" : "text-neutral-400 hover:text-neutral-600"
+                        )}
+                      >
+                        <ReceiptText size={14} />
+                        Current Cycle
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setCcActiveTab('previous')}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-bold text-[11px] xs:text-xs transition-colors cursor-pointer whitespace-nowrap",
+                          ccActiveTab === 'previous' ? "bg-white shadow-xs text-blue-600 font-extrabold" : "text-neutral-400 hover:text-neutral-600"
+                        )}
+                      >
+                        <History size={14} />
+                        Previous Cycle
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex p-2 bg-neutral-50 rounded-2xl border border-neutral-200/50 gap-1 overflow-x-auto">
+                      <button 
+                        type="button"
+                        onClick={() => setNonCcFilter('60days')}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-bold text-[11px] xs:text-xs transition-colors cursor-pointer whitespace-nowrap",
+                          nonCcFilter === '60days' ? "bg-white shadow-xs text-blue-600 font-extrabold" : "text-neutral-400 hover:text-neutral-600"
+                        )}
+                      >
+                        <History size={14} />
+                        Last 60 Days
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setNonCcFilter('currentMonth')}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-bold text-[11px] xs:text-xs transition-colors cursor-pointer whitespace-nowrap",
+                          nonCcFilter === 'currentMonth' ? "bg-white shadow-xs text-blue-600 font-extrabold" : "text-neutral-400 hover:text-neutral-600"
+                        )}
+                      >
+                        <ReceiptText size={14} />
+                        {dateFns.format(new Date(), 'MMMM')}
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setNonCcFilter('previousMonth')}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-bold text-[11px] xs:text-xs transition-colors cursor-pointer whitespace-nowrap",
+                          nonCcFilter === 'previousMonth' ? "bg-white shadow-xs text-blue-600 font-extrabold" : "text-neutral-400 hover:text-neutral-600"
+                        )}
+                      >
+                        <History size={14} />
+                        {dateFns.format(dateFns.subMonths(new Date(), 1), 'MMMM')}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Summary Box */}
+                  {selectedStatementCard.type === 'Credit Card' && ccStatements ? (
+                    (() => {
+                      const currentData = ccActiveTab === 'current' ? ccStatements.current : ccStatements.previous;
                       return (
-                        <div className="pt-2 border-t border-neutral-100 flex justify-between items-center">
-                          <div className="text-[10px] text-neutral-500 flex gap-3">
-                            <p><span className="font-bold uppercase">Bill:</span> Day {acc.billingDate}</p>
-                            <p><span className="font-bold uppercase">Due:</span> Day {acc.dueDate}</p>
+                        <div className="flex justify-between items-end bg-white/70 p-4 rounded-2xl border border-neutral-100/80 shadow-xs">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase text-neutral-450 tracking-widest mb-1">Statement Period</p>
+                            <p className="text-sm font-bold text-neutral-600">{currentData.period}</p>
                           </div>
-                          <button 
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedCreditCard(acc);
-                              setIsPayBillModalOpen(true);
-                            }}
-                            className={cn(
-                              "text-[10px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer",
-                              isPaid 
-                                ? "text-emerald-600 bg-emerald-50/70 border border-emerald-100/50 hover:bg-emerald-100/60" 
-                                : "text-blue-600 bg-blue-50/80 hover:bg-blue-100"
-                            )}
-                          >
-                            {isPaid ? "Paid ✓" : "Pay Bill"}
-                          </button>
+                          <div className="text-right">
+                            <p className="text-[10px] font-bold uppercase text-neutral-450 tracking-widest mb-1">Total Expenses</p>
+                            <p className="text-xl font-extrabold text-red-500">{formatCurrency(currentData.total)}</p>
+                          </div>
                         </div>
                       );
-                    })()}
+                    })()
+                  ) : (nonCcFilter !== '60days') ? (
+                    <div className="grid grid-cols-2 gap-4 p-4 bg-white/70 rounded-2xl border border-neutral-100/80 shadow-xs">
+                      <div className="text-center pr-2 border-r border-neutral-100">
+                        <p className="text-[10px] font-bold uppercase text-neutral-450 tracking-widest mb-1 flex items-center justify-center gap-0.5">
+                          <ArrowDownLeft size={10} className="text-emerald-500" /> Inflow
+                        </p>
+                        <p className="text-base font-extrabold text-emerald-600 truncate">
+                          {nonCcStats?.inflow && nonCcStats.inflow > 0 ? `+${formatCurrency(nonCcStats.inflow)}` : formatCurrency(0)}
+                        </p>
+                      </div>
+                      <div className="text-center pl-2">
+                        <p className="text-[10px] font-bold uppercase text-neutral-450 tracking-widest mb-1 flex items-center justify-center gap-0.5">
+                          <ArrowUpRight size={10} className="text-red-500" /> Outflow
+                        </p>
+                        <p className="text-base font-extrabold text-red-500 truncate">
+                          {nonCcStats?.outflow && nonCcStats.outflow > 0 ? `-${formatCurrency(nonCcStats.outflow)}` : formatCurrency(0)}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Transactions list */}
+                  {selectedStatementCard.type === 'Credit Card' ? (
+                    (() => {
+                      const displayTransactions = (ccActiveTab === 'current' ? ccStatements?.current : ccStatements?.previous)?.transactions || [];
+                      return (
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-[10px] font-extrabold uppercase text-neutral-400 tracking-widest">
+                              Cycle Transactions
+                            </h4>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDefaultTransactionAccountId(selectedStatementCard.id);
+                                setIsExpenseModalOpen(true);
+                              }}
+                              className="text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-700 cursor-pointer transition-all hover:underline"
+                            >
+                              + Add Transaction
+                            </button>
+                          </div>
+
+                          {displayTransactions.length === 0 ? (
+                            <div className="py-12 text-center text-neutral-400 bg-white/60 rounded-2xl border-2 border-dashed border-neutral-100/85">
+                              <p className="text-sm font-semibold">No transactions found</p>
+                              <p className="text-xs text-neutral-300 mt-1">
+                                No transactions recorded in this cycle
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {displayTransactions.map(t => {
+                                const isIncoming = t.type === 'Income' || (t.type === 'Transfer' && t.toAccountId === selectedStatementCard.id);
+                                return (
+                                  <div key={t.id} className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-neutral-100 shadow-xs hover:border-neutral-200 transition-colors">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <div className={cn(
+                                        "w-8 h-8 rounded-xl flex items-center justify-center shrink-0",
+                                        isIncoming ? "bg-emerald-50 text-emerald-600" : "bg-neutral-55 text-neutral-400"
+                                      )}>
+                                        {t.type === 'Transfer' ? (
+                                          isIncoming ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />
+                                        ) : (
+                                          <ReceiptText size={16} />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-bold text-neutral-800 truncate leading-tight">{t.description}</p>
+                                        <p className="text-[10px] text-neutral-400 font-medium flex items-center flex-wrap gap-1 mt-0.5">
+                                          <span>{dateFns.format(dateFns.parseISO(t.date), 'MMM dd, yyyy')}</span>
+                                          {t.category && (
+                                            <>
+                                              <span className="text-neutral-300">•</span>
+                                              <span className="text-neutral-400 truncate max-w-[120px]">{t.category}</span>
+                                            </>
+                                          )}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="flex flex-col items-end flex-shrink-0">
+                                      <p className={cn(
+                                        "text-sm font-extrabold whitespace-nowrap leading-tight",
+                                        isIncoming ? "text-emerald-500" : "text-neutral-800"
+                                      )}>
+                                        {isIncoming ? '+' : '-'}{formatCurrency(t.amount)}
+                                      </p>
+                                      <div className="flex items-center gap-1.5 mt-1">
+                                        <button 
+                                          type="button"
+                                          onClick={() => {
+                                            if (t.groupId) {
+                                              const master = transactions.find(tx => tx.groupId === t.groupId && tx.description.includes('(My Share)'));
+                                              setEditingTransaction(master || t);
+                                            } else {
+                                              setEditingTransaction(t);
+                                            }
+                                         }} 
+                                          className="text-neutral-300 hover:text-blue-500 p-0.5 transition-colors active:scale-90 cursor-pointer"
+                                          title="Edit Transaction"
+                                        >
+                                          <Pencil size={11} />
+                                        </button>
+                                        <button 
+                                          type="button"
+                                          onClick={() => deleteTransaction(t.id)} 
+                                          className="text-neutral-300 hover:text-red-500 p-0.5 transition-colors active:scale-90 cursor-pointer"
+                                          title="Delete Transaction"
+                                        >
+                                          <Trash2 size={11} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h4 className="text-[10px] font-extrabold uppercase text-neutral-400 tracking-widest">
+                          {nonCcFilter === 'currentMonth' ? 'Transaction History (Current Month)' : nonCcFilter === 'previousMonth' ? 'Transaction History (Previous Month)' : 'Transaction History (Last 60 Days)'}
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDefaultTransactionAccountId(selectedStatementCard.id);
+                            setIsExpenseModalOpen(true);
+                          }}
+                          className="text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-700 cursor-pointer transition-all hover:underline"
+                        >
+                          + Add Transaction
+                        </button>
+                      </div>
+
+                      {nonCcTransactions.length === 0 ? (
+                        <div className="py-12 text-center text-neutral-400 bg-white/60 rounded-2xl border-2 border-dashed border-neutral-100/85">
+                          <p className="text-sm font-semibold">No transactions found</p>
+                          <p className="text-xs text-neutral-300 mt-1">
+                            {nonCcFilter === 'currentMonth' 
+                              ? 'No transactions recorded this month' 
+                              : nonCcFilter === 'previousMonth' 
+                              ? 'No transactions recorded last month' 
+                              : 'No transactions recorded in the last 60 days'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {nonCcTransactions.map(t => {
+                            const isIncoming = t.type === 'Income' || (t.type === 'Transfer' && t.toAccountId === selectedStatementCard.id);
+                            return (
+                              <div key={t.id} className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-neutral-100 shadow-xs hover:border-neutral-200 transition-colors">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className={cn(
+                                    "w-8 h-8 rounded-xl flex items-center justify-center shrink-0",
+                                    isIncoming ? "bg-emerald-50 text-emerald-600" : "bg-neutral-55 text-neutral-400"
+                                  )}>
+                                    {t.type === 'Transfer' ? (
+                                      isIncoming ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />
+                                    ) : (
+                                      <ReceiptText size={16} />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-bold text-neutral-800 truncate leading-tight">{t.description}</p>
+                                    <p className="text-[10px] text-neutral-400 font-medium flex items-center flex-wrap gap-1 mt-0.5">
+                                      <span>{dateFns.format(dateFns.parseISO(t.date), 'MMM dd, yyyy')}</span>
+                                      {t.category && (
+                                        <>
+                                          <span className="text-neutral-300">•</span>
+                                          <span className="text-neutral-400 truncate max-w-[120px]">{t.category}</span>
+                                        </>
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex flex-col items-end flex-shrink-0">
+                                  <p className={cn(
+                                    "text-sm font-extrabold whitespace-nowrap leading-tight",
+                                    isIncoming ? "text-emerald-500" : "text-neutral-800"
+                                  )}>
+                                    {isIncoming ? '+' : '-'}{formatCurrency(t.amount)}
+                                  </p>
+                                  <div className="flex items-center gap-1.5 mt-1">
+                                    <button 
+                                      type="button"
+                                      onClick={() => {
+                                        if (t.groupId) {
+                                          const master = transactions.find(tx => tx.groupId === t.groupId && tx.description.includes('(My Share)'));
+                                          setEditingTransaction(master || t);
+                                        } else {
+                                          setEditingTransaction(t);
+                                        }
+                                      }} 
+                                      className="text-neutral-300 hover:text-blue-500 p-0.5 transition-colors active:scale-90 cursor-pointer"
+                                      title="Edit Transaction"
+                                    >
+                                      <Pencil size={11} />
+                                    </button>
+                                    <button 
+                                      type="button"
+                                      onClick={() => deleteTransaction(t.id)} 
+                                      className="text-neutral-300 hover:text-red-500 p-0.5 transition-colors active:scale-90 cursor-pointer"
+                                      title="Delete Transaction"
+                                    >
+                                      <Trash2 size={11} />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="accounts-list"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  transition={{ type: "tween", ease: "easeInOut", duration: 0.15 }}
+                  className="space-y-6"
+                >
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold">Your Accounts</h2>
+                    <div className="flex gap-2">
+                      <button onClick={() => setIsAccountModalOpen(true)} className="glass-button flex items-center gap-2 text-sm">
+                        <Plus size={16} /> Add
+                      </button>
+                    </div>
                   </div>
-                ))}
-              </div>
-            </motion.div>
+                  
+                  <div className="grid gap-3">
+                    {accounts.map(acc => (
+                      <div 
+                        key={acc.id} 
+                        className="glass-card p-4 space-y-3 transition-all cursor-pointer hover:border-blue-200 active:scale-[0.99]"
+                        onClick={() => {
+                          setSelectedStatementCard(acc);
+                          setCcActiveTab('current');
+                          setNonCcFilter('60days');
+                        }}
+                      >
+                        <div className="flex justify-between items-center gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", acc.color)} />
+                            <div className="min-w-0">
+                              <h3 className="font-bold text-sm truncate">{acc.name}</h3>
+                              <p className="text-[10px] text-neutral-400 uppercase font-bold tracking-widest truncate">{acc.type}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4 flex-shrink-0">
+                            <div className="text-right">
+                              <p className={cn("text-base font-bold whitespace-nowrap", acc.balance < 0 ? "text-red-500" : "text-neutral-900")}>
+                                {formatCurrency(acc.balance)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingAccount(acc);
+                                }} 
+                                className="text-neutral-300 hover:text-blue-500 p-1"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteAccount(acc.id);
+                                }} 
+                                className="text-neutral-300 hover:text-red-400 p-1"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {acc.type === 'Credit Card' && (() => {
+                          const pendingDues = calculatePendingDues(acc, transactions);
+                          const isPaid = pendingDues === 0;
+                          return (
+                            <div className="pt-2 border-t border-neutral-100 flex justify-between items-center">
+                              <div className="text-[10px] text-neutral-500 flex gap-3">
+                                <p><span className="font-bold uppercase">Bill:</span> Day {acc.billingDate}</p>
+                                <p><span className="font-bold uppercase">Due:</span> Day {acc.dueDate}</p>
+                              </div>
+                              <button 
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedCreditCard(acc);
+                                  setIsPayBillModalOpen(true);
+                                }}
+                                className={cn(
+                                  "text-[10px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer",
+                                  isPaid 
+                                    ? "text-emerald-600 bg-emerald-50/70 border border-emerald-100/50 hover:bg-emerald-100/60" 
+                                    : "text-blue-600 bg-blue-50/80 hover:bg-blue-100"
+                                )}
+                              >
+                                {isPaid ? "Paid ✓" : "Pay Bill"}
+                              </button>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           )}
 
           {activeTab === 'settings' && (
@@ -996,7 +1437,7 @@ export default function App() {
       </main>
 
       {/* Navigation Bar */}
-      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white border-t border-x border-neutral-100/80 rounded-t-[24px] px-6 py-2 flex items-center justify-between z-50 shadow-[0_-8px_30px_rgba(0,0,0,0.05)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <nav className="absolute bottom-0 left-0 right-0 bg-white border-t border-x border-neutral-100/80 rounded-t-[24px] px-6 py-2 flex items-center justify-between z-40 shadow-[0_-8px_30px_rgba(0,0,0,0.05)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button 
           onClick={() => setActiveTab('dashboard')}
           className={cn(
@@ -1073,26 +1514,6 @@ export default function App() {
             onClose={() => setIsPayBillModalOpen(false)}
             onSave={payBill}
             defaultAmount={calculatePendingDues(selectedCreditCard, transactions)}
-          />
-        )}
-        {selectedStatementCard && (
-          <CreditCardStatementModal 
-            cc={selectedStatementCard}
-            transactions={transactions}
-            onClose={() => setSelectedStatementCard(null)}
-            onEditTransaction={(t) => {
-              if (t.groupId) {
-                const master = transactions.find(tx => tx.groupId === t.groupId && tx.description.includes('(My Share)'));
-                setEditingTransaction(master || t);
-              } else {
-                setEditingTransaction(t);
-              }
-            }}
-            onDeleteTransaction={deleteTransaction}
-            onAddTransaction={(accId) => {
-              setDefaultTransactionAccountId(accId);
-              setIsExpenseModalOpen(true);
-            }}
           />
         )}
         {isResetModalOpen && (
