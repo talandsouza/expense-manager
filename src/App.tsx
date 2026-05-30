@@ -599,9 +599,9 @@ export default function App() {
   };
 
   return (
-    <div className="max-w-md mx-auto h-[100dvh] flex flex-col relative overflow-hidden bg-transparent">
+    <div className="fixed inset-0 max-w-md mx-auto flex flex-col overflow-hidden bg-transparent">
       {/* Main Content Scrollable Container */}
-      <main className="flex-1 overflow-y-auto no-scrollbar px-4 pt-8 pb-32">
+      <main className="flex-1 overflow-y-auto no-scrollbar px-4 pt-8 pb-6">
         {/* Header */}
         {!selectedStatementCard && (
           <header className="mb-8 flex justify-between items-start">
@@ -959,22 +959,23 @@ export default function App() {
                   className="space-y-6"
                 >
                   {/* Back button and account details */}
-                  <div className="flex items-center gap-3">
+                  <div className="space-y-2">
                     <button 
                       type="button"
                       onClick={() => setSelectedStatementCard(null)}
-                      className="p-2 -ml-2 rounded-full hover:bg-neutral-150 transition-colors cursor-pointer"
+                      className="inline-flex items-center gap-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-600 text-[10px] font-extrabold uppercase tracking-wider px-3 py-1.5 rounded-full transition-colors cursor-pointer active:scale-95 shadow-2xs border border-neutral-200/45"
                       title="Back to Accounts"
                     >
-                      <ArrowLeft size={20} className="text-neutral-600" />
+                      <ArrowLeft size={10} className="text-neutral-500 shrink-0" />
+                      Back to Accounts
                     </button>
-                    <div>
-                      <h2 className="text-2xl font-bold flex items-center gap-2">
-                        <span className={cn("w-3 h-3 rounded-full flex-shrink-0", selectedStatementCard.color)} />
-                        {selectedStatementCard.name}
-                      </h2>
-                      <p className="text-[10px] text-neutral-400 font-extrabold uppercase tracking-widest leading-none mt-1">
-                        {selectedStatementCard.type === 'Credit Card' ? 'Credit Card Statement' : `${selectedStatementCard.type} Account Log`}
+                    <h1 className="text-4xl font-bold tracking-tight">
+                      {formatCurrency(selectedStatementCard.balance)}
+                    </h1>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0 shadow-xs", selectedStatementCard.color)} />
+                      <p className="text-[10px] text-neutral-450 font-extrabold uppercase tracking-widest leading-none">
+                        {selectedStatementCard.name} • {selectedStatementCard.type === 'Credit Card' ? 'Credit Card Statement' : `${selectedStatementCard.type} Account Log`}
                       </p>
                     </div>
                   </div>
@@ -1115,11 +1116,17 @@ export default function App() {
                               {displayTransactions.map(t => {
                                 const isIncoming = t.type === 'Income' || (t.type === 'Transfer' && t.toAccountId === selectedStatementCard.id);
                                 return (
-                                  <div key={t.id} className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-neutral-100 shadow-xs hover:border-neutral-200 transition-colors">
+                                  <div 
+                                    key={t.id} 
+                                    className={cn(
+                                      "glass-card p-3 flex items-center justify-between gap-3 border-l-4 shadow-3xs transition-all",
+                                      isIncoming ? "border-l-emerald-500" : "border-l-red-500"
+                                    )}
+                                  >
                                     <div className="flex items-center gap-3 min-w-0">
                                       <div className={cn(
-                                        "w-8 h-8 rounded-xl flex items-center justify-center shrink-0",
-                                        isIncoming ? "bg-emerald-50 text-emerald-600" : "bg-neutral-55 text-neutral-400"
+                                        "w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center",
+                                        isIncoming ? "bg-emerald-100 text-emerald-600" : "bg-neutral-100 text-neutral-600"
                                       )}>
                                         {t.type === 'Transfer' ? (
                                           isIncoming ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />
@@ -1128,13 +1135,13 @@ export default function App() {
                                         )}
                                       </div>
                                       <div className="min-w-0">
-                                        <p className="text-sm font-bold text-neutral-800 truncate leading-tight">{t.description}</p>
-                                        <p className="text-[10px] text-neutral-400 font-medium flex items-center flex-wrap gap-1 mt-0.5">
-                                          <span>{dateFns.format(dateFns.parseISO(t.date), 'MMM dd, yyyy')}</span>
+                                        <p className="font-semibold text-sm truncate leading-tight">{t.description}</p>
+                                        <p className="text-[10px] text-neutral-450 mt-0.5 flex items-center flex-wrap gap-1">
+                                          <span>{dateFns.format(dateFns.parseISO(t.date), 'MMM d, yyyy')}</span>
                                           {t.category && (
                                             <>
                                               <span className="text-neutral-300">•</span>
-                                              <span className="text-neutral-400 truncate max-w-[120px]">{t.category}</span>
+                                              <span className="truncate max-w-[120px]">{t.category}</span>
                                             </>
                                           )}
                                         </p>
@@ -1215,12 +1222,23 @@ export default function App() {
                         <div className="space-y-2">
                           {nonCcTransactions.map(t => {
                             const isIncoming = t.type === 'Income' || (t.type === 'Transfer' && t.toAccountId === selectedStatementCard.id);
+                            const borderCol = isIncoming 
+                              ? "border-l-emerald-500" 
+                              : (selectedStatementCard.color?.startsWith('bg-') 
+                                  ? selectedStatementCard.color.replace('bg-', 'border-l-') 
+                                  : "border-l-neutral-400");
                             return (
-                              <div key={t.id} className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-neutral-100 shadow-xs hover:border-neutral-200 transition-colors">
+                              <div 
+                                key={t.id} 
+                                className={cn(
+                                  "glass-card p-3 flex items-center justify-between gap-3 border-l-4 shadow-3xs transition-all",
+                                  borderCol
+                                )}
+                              >
                                 <div className="flex items-center gap-3 min-w-0">
                                   <div className={cn(
-                                    "w-8 h-8 rounded-xl flex items-center justify-center shrink-0",
-                                    isIncoming ? "bg-emerald-50 text-emerald-600" : "bg-neutral-55 text-neutral-400"
+                                    "w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center",
+                                    isIncoming ? "bg-emerald-100 text-emerald-600" : "bg-neutral-100 text-neutral-600"
                                   )}>
                                     {t.type === 'Transfer' ? (
                                       isIncoming ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />
@@ -1229,13 +1247,13 @@ export default function App() {
                                     )}
                                   </div>
                                   <div className="min-w-0">
-                                    <p className="text-sm font-bold text-neutral-800 truncate leading-tight">{t.description}</p>
-                                    <p className="text-[10px] text-neutral-400 font-medium flex items-center flex-wrap gap-1 mt-0.5">
-                                      <span>{dateFns.format(dateFns.parseISO(t.date), 'MMM dd, yyyy')}</span>
+                                    <p className="font-semibold text-sm truncate leading-tight">{t.description}</p>
+                                    <p className="text-[10px] text-neutral-450 mt-0.5 flex items-center flex-wrap gap-1">
+                                      <span>{dateFns.format(dateFns.parseISO(t.date), 'MMM d, yyyy')}</span>
                                       {t.category && (
                                         <>
                                           <span className="text-neutral-300">•</span>
-                                          <span className="text-neutral-400 truncate max-w-[120px]">{t.category}</span>
+                                          <span className="truncate max-w-[120px]">{t.category}</span>
                                         </>
                                       )}
                                     </p>
@@ -1437,7 +1455,7 @@ export default function App() {
       </main>
 
       {/* Navigation Bar */}
-      <nav className="absolute bottom-0 left-0 right-0 bg-white border-t border-x border-neutral-100/80 rounded-t-[24px] px-6 py-2 flex items-center justify-between z-40 shadow-[0_-8px_30px_rgba(0,0,0,0.05)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <nav className="relative flex-none bg-white border-t border-x border-neutral-100/80 rounded-t-[24px] px-6 py-2 flex items-center justify-between z-40 shadow-[0_-8px_30px_rgba(0,0,0,0.05)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button 
           onClick={() => setActiveTab('dashboard')}
           className={cn(

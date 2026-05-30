@@ -155,7 +155,7 @@ export default function FilterModal({
         </div>
 
         {/* Scrollable Content */}
-        <div className="p-5 space-y-4.5 overflow-y-auto">
+        <div className="p-5 space-y-4.5 overflow-y-auto no-scrollbar">
           {/* Search Term */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold uppercase text-neutral-400 tracking-wider">Search Keywords</label>
